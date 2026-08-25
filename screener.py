@@ -8,7 +8,7 @@ from requests.adapters import HTTPAdapter
 
 NETLIFY_TOKEN   = os.environ.get("NETLIFY_TOKEN", "")
 NETLIFY_SITE_ID = os.environ.get("NETLIFY_SITE_ID", "")
-MIN_MARKET_CAP  = 10_000_000
+MIN_MARKET_CAP  = 100_000_000
 SEPA_MIN        = 3
 VOL_BREAKOUT    = 1.5
 VCP_MIN         = 2
@@ -23,19 +23,77 @@ session.headers.update({
 })
 
 def get_all_asx_tickers():
-    try:
-        import io
-        url = "https://www.asx.com.au/asx/research/ASXListedCompanies.csv"
+    """
+    Ticker universe for the screener.
+
+    Primary source: the ASX company directory served by MarkitDigital (the
+    endpoint asx.com.au itself uses). It returns ASX code + market cap, so we
+    can pre-filter by market cap here and avoid asking Yahoo about ~1100
+    micro-caps we would discard anyway.
+
+    Fallback: the tickers from the last good data/latest.json.
+
+    Never returns [] silently — an empty universe raises, so the run fails
+    loudly instead of publishing an empty dashboard.
+    """
+    import io
+
+    def _from_asx_directory():
+        url = ("https://asx.api.markitdigital.com/asx-research/1.0/"
+               "companies/directory/file"
+               "?access_token=83ff96335c2d45a094df02a206a39ff4")
         resp = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
-        df = pd.read_csv(io.StringIO(resp.text), skiprows=1)
-        col = [c for c in df.columns if 'code' in c.lower() or 'asx' in c.lower()][0]
-        tickers = [str(row[col]).strip() + '.AX' for _, row in df.iterrows()
-                   if str(row[col]).strip() and len(str(row[col]).strip()) <= 5]
-        print(f"Loaded {len(tickers)} ASX tickers from ASX website")
-        return tickers
-    except Exception as e:
-        print(f"Failed to fetch ASX tickers: {e}")
-        return []
+        resp.raise_for_status()
+
+        # WAF / error pages come back as HTTP 200 HTML — reject them explicitly.
+        head = resp.text.lstrip()[:200].lower()
+        if head.startswith("<") or "asx code" not in head:
+            raise ValueError("ASX directory did not return CSV (blocked or changed)")
+
+        df = pd.read_csv(io.StringIO(resp.text))
+        code_col = next(c for c in df.columns if "code" in c.lower())
+        cap_col = next((c for c in df.columns if "market cap" in c.lower()), None)
+
+        if cap_col:
+            df[cap_col] = pd.to_numeric(df[cap_col], errors="coerce").fillna(0)
+            before = len(df)
+            df = df[df[cap_col] >= MIN_MARKET_CAP]
+            print(f"Market cap pre-filter: {len(df)}/{before} above "
+                  f"${MIN_MARKET_CAP/1e6:.0f}M")
+
+        tickers = []
+        for code in df[code_col].astype(str):
+            code = code.strip().upper()
+            if code and code.isalnum() and len(code) <= 5:
+                tickers.append(code + ".AX")
+        return sorted(set(tickers))
+
+    def _from_last_good():
+        with open("data/latest.json", "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        rows = payload.get("stocks", payload) if isinstance(payload, dict) else payload
+        tickers = []
+        for r in rows:
+            t = (r.get("_ticker_raw") or r.get("ticker") or "").strip().upper()
+            if t:
+                tickers.append(t if t.endswith(".AX") else t + ".AX")
+        return sorted(set(tickers))
+
+    for label, fn in (("ASX directory", _from_asx_directory),
+                      ("last good run", _from_last_good)):
+        try:
+            tickers = fn()
+            if tickers:
+                print(f"Loaded {len(tickers)} ASX tickers from {label}")
+                return tickers
+            print(f"{label} returned 0 tickers")
+        except Exception as e:
+            print(f"Ticker source '{label}' failed: {type(e).__name__}: {e}")
+
+    raise RuntimeError(
+        "No ASX tickers from any source — aborting rather than publishing "
+        "an empty dashboard."
+    )
 
 ASX_TICKERS = get_all_asx_tickers()
 
@@ -487,7 +545,10 @@ if __name__ == "__main__":
     w = sum(1 for r in data if r['status'] == 'watch')
     print(f"Results: {len(data)} | Breakouts:{b} | NearPivot:{p} | Watch:{w}")
     if not data:
-        print("No stocks passed filters — building empty dashboard.")
+        import sys
+        print("ERROR: screener returned 0 rows — refusing to overwrite the "
+              "live dashboard with an empty one.")
+        sys.exit(1)
     try:
         import build_dashboard
         html = build_dashboard.build(data)
