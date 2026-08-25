@@ -751,20 +751,61 @@ function det(r){
   candleSigsHTML += \'</div>\';
 
   var nuances = [];
-  if(stg===2) nuances.push(\'Confirmed Stage 2 Uptrend. Institutions are in control.\');
-  if(r.vcpScore>=3) nuances.push(\'Aggressive VCP contraction (\'+r.vcpScore+\'/4). Price is coiling for a major move.\');
-  if(r.accDistRatio>1.5) nuances.push(\'Extreme institutional footprint; buying pressure is out-pacing supply by 50%+.\');
-  if(r.pctFromHigh<5) nuances.push(\'Stock is stalking 52W Highs; Relative Strength is elite vs the broader ASX.\');
-  if(r.volRatio<0.7) nuances.push(\'Volume dry-up (VDU) detected. Supply exhaustion near pivot point.\');
-  if(r.candleSignals && r.candleSignals.some(s=>s.includes(\'Pivot\'))) nuances.push(\'Actionable Pocket Pivot occurred; signals internal strength entering the base.\');
-  if(nuances.length===0) nuances.push(\'Stock is currently consolidating. Wait for technical triggers or volume dry-up.\');
-  
-  var nuanceHTML = \'<div style=\"height:100%\"><div class=\"dh\">Aggressive Strategy Sentiment</div>\'+
-    \'<div class=\"abox\" style=\"padding:12px;font-size:11.5px;border-left-color:var(--gold);background:rgba(212,175,55,.05);line-height:1.6\">\'+
-    \'<strong style=\"color:var(--gold);display:block;margin-bottom:6px;font-size:10.5px\">STOCK VERDICT</strong>\'+
-    nuances.slice(0,3).join(\'<br/><br/>\')+
-    \'<div style=\"margin-top:12px;padding-top:10px;border-top:1px solid rgba(212,175,55,.2);color:var(--text);font-style:italic;font-size:10.5px\">\"The biggest moves happen when the setup looks quietest.\"</div>\'+
-    \'</div></div>\';
+  if(stg===2) nuances.push('Confirmed Stage 2 Uptrend. Institutions are in control.');
+  if(r.vcpScore>=3) nuances.push('Aggressive VCP contraction ('+r.vcpScore+'/4). Price is coiling for a major move.');
+  if(r.accDistRatio>1.5) nuances.push('Extreme institutional footprint; buying pressure is out-pacing supply by 50%+.');
+  if(r.pctFromHigh<5) nuances.push('Stock is stalking 52W Highs; Relative Strength is elite vs the broader ASX.');
+  if(r.volRatio<0.7) nuances.push('Volume dry-up (VDU) detected. Supply exhaustion near pivot point.');
+  if(r.candleSignals && r.candleSignals.some(function(x){return x.indexOf('Pivot')>-1;})) nuances.push('Actionable Pocket Pivot occurred; signals internal strength entering the base.');
+  if(nuances.length===0) nuances.push('Stock is currently consolidating. Wait for technical triggers or volume dry-up.');
+
+  var risks = [];
+  if(stg!==2) risks.push('Not Stage 2. The trend template is unconfirmed, so buying here anticipates a stage change rather than trading one.');
+  if(r.accDistRatio<1.0) risks.push('Down-day volume exceeds up-day volume over 60 sessions ('+r.accDistRatio.toFixed(2)+'x). Distribution is running underneath the price action.');
+  else if(r.accDistRatio<1.2) risks.push('Acc/Dist is only '+r.accDistRatio.toFixed(2)+'x. The buying edge is too thin to call this institutional accumulation.');
+  if(r.pctFromHigh>15) risks.push('Trading '+r.pctFromHigh+'% below the 52W high. Too deep in the base for a pivot entry - the right side has not formed yet.');
+  if(r.vcpScore<2) risks.push('VCP score '+r.vcpScore+'/4. The base is still loose; volatility has not contracted enough to define a pivot.');
+  if(r.status==='breakout' && r.volRatio<1.5) risks.push('Breakout is running on only '+r.volRatio.toFixed(1)+'x volume. The 1.5x threshold matters - breakouts without volume confirmation fail at a high rate.');
+  if(r.revGrowth!==null && r.revGrowth!==undefined && r.revGrowth<0) risks.push('Revenue down '+r.revGrowth+'% YoY. The chart is ahead of the business; full SEPA wants both moving together.');
+  if(r.epsGrowth!==null && r.epsGrowth!==undefined && r.epsGrowth<0) risks.push('EPS down '+r.epsGrowth+'% YoY. There is no earnings engine behind the price move.');
+  if(r.fundScore===0) risks.push('Fundamental score 0/3. This is a purely technical setup with no revenue or earnings confirmation.');
+  if(risks.length===0) risks.push('No material counter-evidence in the data. The residual risk is market-level: a broad index reversal drags most leaders down with it.');
+
+  var tmEntry = r.price, tmStop = r.ma50 || (r.price*0.93), tmHTML;
+  if(tmStop >= tmEntry){
+    tmHTML = 'Price sits below its MA50, so an MA50 stop would land above the entry. There is no valid risk level here yet - treat this as a base-building candidate to watch, not an entry.';
+  } else {
+    var rPct = (tmEntry-tmStop)/tmEntry*100;
+    var maxPos = 100/rPct;
+    var tgt = tmEntry + 2*(tmEntry-tmStop);
+    tmHTML = 'Entry '+CUR+tmEntry.toFixed(2)+', stop at MA50 '+CUR+tmStop.toFixed(2)+' = <strong style=\"color:#ff9f43\">'+rPct.toFixed(1)+'% risk</strong> per share. '+
+      'To cap a full stop-out at 1% of your account, size this at no more than <strong style=\"color:var(--gold)\">'+maxPos.toFixed(1)+'% of capital</strong>. '+
+      'A 2R target sits at <strong style=\"color:#00d084\">'+CUR+tgt.toFixed(2)+'</strong>.'+
+      (rPct>10 ? ' <span style=\"color:#ff4757\">A stop more than 10% away breaches the standard risk ceiling - wait for a tighter entry nearer the pivot.</span>' : '')+
+      (maxPos>25 ? ' <span style=\"color:var(--muted)\">The tight stop implies a large position; concentration beyond roughly 25% of capital is its own risk regardless of how close the stop sits.</span>' : '');
+  }
+
+  var bullets = function(arr, col){
+    var out='';
+    for(var z=0; z<arr.length; z++){
+      out += '<div style=\"display:flex;gap:6px;margin-bottom:6px\"><span style=\"color:'+col+';flex:none\">&#9642;</span><span>'+arr[z]+'</span></div>';
+    }
+    return out;
+  };
+
+  var nuanceHTML = '<div style=\"height:100%\"><div class=\"dh\">Aggressive Strategy Sentiment</div>'+
+    '<div class=\"abox\" style=\"padding:12px;font-size:11.5px;border-left-color:var(--gold);background:rgba(212,175,55,.05);line-height:1.55\">'+
+    '<strong style=\"color:var(--gold);display:block;margin-bottom:6px;font-size:10.5px\">STOCK VERDICT</strong>'+
+    bullets(nuances.slice(0,3), 'var(--gold)')+
+    '<div style=\"margin-top:10px;padding-top:9px;border-top:1px solid rgba(212,175,55,.2)\">'+
+    '<strong style=\"color:#ff9f43;display:block;margin-bottom:6px;font-size:10.5px\">WHAT ARGUES AGAINST IT</strong>'+
+    bullets(risks.slice(0,4), '#ff9f43')+
+    '</div>'+
+    '<div style=\"margin-top:10px;padding-top:9px;border-top:1px solid rgba(212,175,55,.2)\">'+
+    '<strong style=\"color:var(--text);display:block;margin-bottom:6px;font-size:10.5px\">POSITION MATH</strong>'+
+    '<div style=\"font-size:10.5px;color:var(--muted);line-height:1.5\">'+tmHTML+'</div>'+
+    '</div>'+
+    '</div></div>';
 
   var chartCol=\'<div style=\"display:flex;flex-direction:column;gap:12px\">\'+
     \'<div><div class=\"dh\">60-Day Candlestick + Volume (orange dash = MA50)</div>\'+
