@@ -680,16 +680,58 @@ function det(r){
   var vcpPointers = ['Base is loose or trending down. Wait for a constructive base to form.', 'Early signs of contraction. Still too loose to buy.', 'Base is forming. Watch for tightening spreads on the right side.', 'Good VCP forming. Volume is drying up. Stalk entry near pivot high.', 'Textbook VCP. Extreme volatility contraction. Prime entry setup on volume breakout.'][r.vcpScore];
 
   var adr = (r.accDistRatio !== undefined) ? r.accDistRatio : 1.0;
-  var adrCol = adr >= 1.5 ? '#00d084' : adr >= 1.0 ? '#8bc34a' : '#ff4757';
-  var adrTxt = adr >= 1.5 ? 'Strong Institutional Accumulation' : adr >= 1.2 ? 'Healthy Buying Bias' : 'Check distribution signals';
-  
+  var vr  = r.volRatio || 0;
+  var pv  = r.pvr || 0;
+
+  var adrCol, adrTxt, adrWhy;
+  if(adr >= 1.5){ adrCol='#00d084'; adrTxt='Strong Institutional Accumulation';
+    adrWhy='Up-day volume is more than 1.5x down-day volume over 60 sessions. Buyers are firmly the aggressive side.'; }
+  else if(adr >= 1.2){ adrCol='#8bc34a'; adrTxt='Healthy Buying Bias';
+    adrWhy='Clearly more volume on green days than red days. Accumulation is real but not extreme.'; }
+  else if(adr >= 1.0){ adrCol='#ff9f43'; adrTxt='Marginal Accumulation';
+    adrWhy='Only slightly more volume on up days. The buying edge is thin - not yet convincing.'; }
+  else { adrCol='#ff4757'; adrTxt='Distribution - Sellers In Control';
+    adrWhy='More volume traded on down days than up days. Supply is dominant.'; }
+
+  var vrCol, vrWhy;
+  if(vr >= 1.5){ vrCol='#00d084';
+    vrWhy='Well above normal turnover - institutional-size participation today.'; }
+  else if(vr >= 0.8){ vrCol='#ff9f43';
+    vrWhy='Roughly normal turnover. Nothing unusual in the current session.'; }
+  else { vrCol='#8bc34a';
+    vrWhy='Volume drying up - constructive if the stock is tightening into a VCP base.'; }
+
+  var pvCol, pvWhy, pvShow;
+  if(vr < 1.3){ pvCol='var(--muted)'; pvShow='n/a';
+    pvWhy='Not meaningful today - volume is too close to average for this ratio to be stable.'; }
+  else if(pv >= 1.1){ pvCol='#00d084'; pvShow=pv.toFixed(2);
+    pvWhy='Efficient move - price travelled well for the extra volume. Demand outweighed supply.'; }
+  else if(pv >= 0.6){ pvCol='#ff9f43'; pvShow=pv.toFixed(2);
+    pvWhy='Mediocre progress for the volume traded. Needs follow-through to confirm.'; }
+  else { pvCol='#ff4757'; pvShow=pv.toFixed(2);
+    pvWhy='Churning - heavy volume produced almost no price gain. Sellers absorbed the buying. Supply warning.'; }
+
+  var mRow = function(label, val, col, why){
+    return '<div style=\"border-top:1px solid var(--border);padding-top:6px;margin-top:6px\">'+
+      '<div style=\"display:flex;justify-content:space-between\"><span style=\"color:var(--muted)\">'+label+'</span>'+
+      '<strong style=\"color:'+col+'\">'+val+'</strong></div>'+
+      '<div style=\"font-size:9.5px;color:var(--muted);line-height:1.45;margin-top:2px\">'+why+'</div></div>';
+  };
+
   var smartMoneyHtml = '<div>'+
-    '<div class="dh">Smart Money Indicators</div>'+
-    '<div class="abox" style="padding:10px;font-size:11px;border-left-color:'+adrCol+';line-height:1.6;background:var(--bg3);border:1px solid var(--border);border-left:3.5px solid '+adrCol+'">'+
-    '<div style="font-size:12px;font-weight:800;color:#fff;margin-bottom:5px">60D Acc/Dist: <span style="color:'+adrCol+'">'+adr.toFixed(2)+'x</span></div>'+
-    '<div style="font-size:10px;color:var(--muted);margin-bottom:8px">'+adrTxt+'</div>'+
-    '<div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);padding-top:6px"><span style="color:var(--muted)">Price/Vol (PVR):</span><strong style="color:'+(r.pvr>1.1?'#00d084':'#ff9f43')+'">'+(r.pvr||0)+'</strong></div>'+
-    '<div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Vol vs 50D:</span><strong style="color:'+(r.volRatio>=1.5?'#00d084':'#ff9f43')+'">'+(r.volRatio||0).toFixed(1)+'x</strong></div>'+
+    '<div class=\"dh\">Smart Money Indicators</div>'+
+    '<div class=\"abox\" style=\"padding:10px;font-size:11px;line-height:1.6;background:var(--bg3);border:1px solid var(--border);border-left:3.5px solid '+adrCol+'\">'+
+    '<div style=\"font-size:12px;font-weight:800;color:#fff;margin-bottom:3px\">60D Acc/Dist: <span style=\"color:'+adrCol+'\">'+adr.toFixed(2)+'x</span></div>'+
+    '<div style=\"font-size:10px;color:'+adrCol+';font-weight:600;margin-bottom:3px\">'+adrTxt+'</div>'+
+    '<div style=\"font-size:9.5px;color:var(--muted);line-height:1.45\">'+adrWhy+'</div>'+
+    mRow('Price/Vol (PVR):', pvShow, pvCol, pvWhy)+
+    mRow('Vol vs 50D:', vr.toFixed(1)+'x', vrCol, vrWhy)+
+    '<div style=\"border-top:1px solid var(--border);margin-top:8px;padding-top:6px;font-size:9px;color:var(--muted);line-height:1.5\">'+
+      '<strong style=\"color:var(--text)\">How these are built.</strong> '+
+      '<b>Acc/Dist</b> adds up all volume on up days and divides it by all volume on down days across the last 60 sessions - above 1.0 means buyers were the aggressive side. This same test also gates the Stage 2 label: a stock cannot be called Advancing unless it is above 1.0. '+
+      '<b>Vol vs 50D</b> is the current day volume divided by the 50-day average, so 2.0x means double the usual turnover. '+
+      '<b>PVR</b> divides the current day percent price move by the excess volume above average, answering: for all that extra volume, how far did the price actually travel? A low PVR on heavy volume is churning - buyers showed up and sellers absorbed all of it, which Minervini treats as a supply warning. It is shown as n/a below 1.3x volume, where the maths becomes unstable.'+
+    '</div>'+
     '</div></div>';
 
   var candleSigsHTML = '<div style="margin-top:12px"><div class="dh" style="color:var(--gold)">Advanced Price Action Highlights</div>';
