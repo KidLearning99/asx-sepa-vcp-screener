@@ -268,12 +268,12 @@ tbody td{padding:8px 10px;vertical-align:middle}
 .cr{display:flex;align-items:flex-start;gap:5px;font-size:11px;line-height:1.5}
 .cr.ok{color:var(--green)}.cr.no{color:#253550}
 .ci{width:12px;flex-shrink:0;font-size:10px;margin-top:1px}
-.mat{width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed}
+.mat{width:100%;border-collapse:collapse;font-size:11px;table-layout:auto}
 .mat td{padding:3px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mlb{color:var(--muted);width:48px}.mbar{padding:2px 6px;width:88px}
+.mlb{color:var(--muted);width:auto;white-space:nowrap}.mbar{padding:2px 6px;width:88px}
 .mbw{height:5px;background:var(--bg4);border-radius:3px;overflow:hidden}
 .mbi{height:100%;border-radius:3px}.mvl{font-family:'JetBrains Mono';color:#4a6a8a;text-align:right;width:54px}
-.mgv{font-family:'JetBrains Mono';font-size:11px;font-weight:700;text-align:right}
+.mgv{font-family:'JetBrains Mono';font-size:11px;font-weight:700;text-align:right;white-space:nowrap}
 .rev-bars{display:flex;align-items:flex-end;gap:3px;height:48px;margin:6px 0}
 .rev-bar-wrap{display:flex;flex-direction:column;align-items:center;gap:2px;flex:0 0 24px}
 .rev-bar{width:16px;border-radius:2px 2px 0 0;min-height:2px}
@@ -654,8 +654,8 @@ function det(r){
     revTrendChip(r.revTrend)+
     revBars(r.revQuarters)+
     '<table class="mat">'+
-    '<tr><td class="mlb">Rev YoY</td><td class="mbar"></td><td class="mgv">'+fmtGrowth(rg)+'</td></tr>'+
-    '<tr><td class="mlb">EPS Grw</td><td class="mbar"></td><td class="mgv">'+fmtGrowth(eg,10,0)+'</td></tr>'+
+    '<tr><td class="mlb">Rev YoY</td><td class="mgv">'+fmtGrowth(rg)+'</td></tr>'+
+    '<tr><td class="mlb">EPS Grw</td><td class="mgv">'+fmtGrowth(eg,10,0)+'</td></tr>'+
     '</table>'+
     '</div>';
     
@@ -708,8 +708,10 @@ function det(r){
     pvWhy='Efficient move - price travelled well for the extra volume. Demand outweighed supply.'; }
   else if(pv >= 0.6){ pvCol='#ff9f43'; pvShow=pv.toFixed(2);
     pvWhy='Mediocre progress for the volume traded. Needs follow-through to confirm.'; }
+  else if(pv < 0.15){ pvCol='#ff9f43'; pvShow=pv.toFixed(2);
+    pvWhy='Squat - heavy volume with effectively zero net price progress. Every buyer was matched by a seller at the same price. This is ambiguous: it can be a fund absorbing stock (bullish) or a holder unloading into demand (bearish). Read it against Acc/Dist and where price sits in the base, then watch which way the next session breaks.'; }
   else { pvCol='#ff4757'; pvShow=pv.toFixed(2);
-    pvWhy='Churning - heavy volume produced almost no price gain. Sellers absorbed the buying. Supply warning.'; }
+    pvWhy='Price badly lagged the volume - buyers turned up but sellers absorbed most of the effort. Leans distribution unless Acc/Dist says otherwise.'; }
 
   var mRow = function(label, val, col, why){
     return '<div style=\"border-top:1px solid var(--border);padding-top:6px;margin-top:6px\">'+
