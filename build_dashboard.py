@@ -226,7 +226,7 @@ input.srch:focus,select:focus{border-color:var(--green)}
 
 /* \u2500\u2500 Table \u2500\u2500 */
 .twrap{margin:0 24px 28px;border:1px solid var(--border);border-radius:12px;overflow:hidden;overflow-x:auto}
-table{width:100%;border-collapse:collapse;min-width:1060px}
+.twrap>table{width:100%;border-collapse:collapse;min-width:1060px}
 thead th{
   background:var(--bg2);padding:9px 10px;text-align:left;
   font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;
@@ -268,7 +268,7 @@ tbody td{padding:8px 10px;vertical-align:middle}
 .cr{display:flex;align-items:flex-start;gap:5px;font-size:11px;line-height:1.5}
 .cr.ok{color:var(--green)}.cr.no{color:#253550}
 .ci{width:12px;flex-shrink:0;font-size:10px;margin-top:1px}
-.mat{width:100%;border-collapse:collapse;font-size:11px;table-layout:auto}
+.mat{width:100%;min-width:0;border-collapse:collapse;font-size:11px;table-layout:auto}
 .mat td{padding:3px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mlb{color:var(--muted);width:auto;white-space:nowrap}.mbar{padding:2px 6px;width:88px}
 .mbw{height:5px;background:var(--bg4);border-radius:3px;overflow:hidden}
