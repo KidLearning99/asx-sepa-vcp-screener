@@ -752,14 +752,64 @@ function det(r){
   }
   candleSigsHTML += \'</div>\';
 
+  var _oc = r.ohlcv || [];
+  var _cl = _oc.map(function(x){return x[3];});
+  var _hi = _oc.map(function(x){return x[1];});
+  var _vo = _oc.map(function(x){return x[4];});
+  var _mean = function(a){ if(!a.length) return 0; var t=0; for(var q=0;q<a.length;q++)t+=a[q]; return t/a.length; };
+  var _back = function(n){ if(_cl.length>n){ var o=_cl[_cl.length-1-n]; return o>0 ? (r.price-o)/o*100 : null; } return null; };
+  var _c10=_back(10), _c20=_back(20);
+  var _pivot = _hi.length>=20 ? Math.max.apply(null,_hi.slice(-20)) : null;
+  var _toPivot = _pivot ? (_pivot-r.price)/r.price*100 : null;
+  var _v5 = _vo.length>=5 ? _mean(_vo.slice(-5)) : null;
+  var _vAll = _vo.length ? _mean(_vo) : null;
+  var _vdu = (_v5 && _vAll) ? _v5/_vAll : null;
+  var _extMa50 = r.ma50 ? (r.price-r.ma50)/r.ma50*100 : null;
+  var _sep = (r.ma50 && r.ma200) ? (r.ma50-r.ma200)/r.ma200*100 : null;
+  var _sgn = function(v){ return (v>=0?'+':'')+v.toFixed(1)+'%'; };
+
   var nuances = [];
-  if(stg===2) nuances.push('Confirmed Stage 2 Uptrend. Institutions are in control.');
-  if(r.vcpScore>=3) nuances.push('Aggressive VCP contraction ('+r.vcpScore+'/4). Price is coiling for a major move.');
-  if(r.accDistRatio>1.5) nuances.push('Extreme institutional footprint; buying pressure is out-pacing supply by 50%+.');
-  if(r.pctFromHigh<5) nuances.push('Stock is stalking 52W Highs; Relative Strength is elite vs the broader ASX.');
-  if(r.volRatio<0.7) nuances.push('Volume dry-up (VDU) detected. Supply exhaustion near pivot point.');
-  if(r.candleSignals && r.candleSignals.some(function(x){return x.indexOf('Pivot')>-1;})) nuances.push('Actionable Pocket Pivot occurred; signals internal strength entering the base.');
-  if(nuances.length===0) nuances.push('Stock is currently consolidating. Wait for technical triggers or volume dry-up.');
+
+  if(_pivot!==null){
+    if(r.price >= _pivot*0.999){
+      nuances.push('Price is at the 20-day high of '+CUR+_pivot.toFixed(2)+' - the breakout is happening now, not pending. Volume today is '+r.volRatio.toFixed(1)+'x average, and the 1.5x threshold is what separates a real break from a fade.');
+    } else {
+      nuances.push('The 20-day high is '+CUR+_pivot.toFixed(2)+', '+_toPivot.toFixed(1)+'% above the current '+CUR+r.price.toFixed(2)+'. '+(_toPivot>10?'That gap is too wide to trade as a pivot - the stock has to build a tighter right side before an entry exists':'Set the alert there and require volume above 1.5x on the break; buying below the pivot is anticipating rather than confirming')+'.');
+    }
+  }
+
+  if(stg===2 && _extMa50!==null && _sep!==null){
+    nuances.push('Stage 2 has real separation, not a marginal cross: price is '+_sgn(_extMa50)+' above the MA50 and the MA50 sits '+_sgn(_sep)+' above the MA200'+(_extMa50>10?'. That said, '+_extMa50.toFixed(1)+'% above the MA50 is extended - a stop at the MA50 forces a wide risk band':'')+'.');
+  } else if(stg!==2 && _extMa50!==null){
+    var _cn={ma50:'price above MA50',ma150:'MA50 above MA150',ma200:'MA150 above MA200',trend:'200-day MA rising',high:'within 25% of the 52W high',low:'well clear of the 52W low',vol:'volume breakout'};
+    var _failed = r.checks ? Object.keys(r.checks).filter(function(k){return !r.checks[k];}).map(function(k){return _cn[k]||k;}) : [];
+    nuances.push('Trend structure is incomplete: price is '+_sgn(_extMa50)+' vs the MA50, and the trend template still fails on '+(_failed.length?_failed.join('; '):'at least one leg')+'. Until those close, this is a watch item rather than a Stage 2 entry.');
+  }
+
+  if(_c20!==null && _c10!==null && r.chg5d!==null){
+    var _tight = Math.abs(r.chg5d) < Math.abs(_c10) && Math.abs(_c10) < Math.abs(_c20);
+    nuances.push('Swing sizes: '+_sgn(_c20)+' over 20 sessions, '+_sgn(_c10)+' over 10, '+_sgn(r.chg5d)+' over the last 5. '+(_tight?'Each leg is shallower than the one before - that stepwise contraction is exactly what the VCP thesis rests on':'The legs are not contracting in order yet, so the base is still loose and no clean pivot has formed')+'. Scored '+r.vcpScore+'/4.');
+  }
+
+  if(_vdu!==null){
+    nuances.push('Volume across the last 5 sessions is running at '+(_vdu*100).toFixed(0)+'% of the 60-day average - '+(_vdu<0.8?'supply is drying up, which is the tell that sellers are finished and the base is ready':'still active, so the base has not gone quiet yet and the pivot is less reliable')+'.');
+  }
+
+  if(r.accDistRatio){
+    nuances.push('Up-day volume is '+r.accDistRatio.toFixed(2)+'x down-day volume over 60 sessions, so buyers accounted for roughly '+(r.accDistRatio/(1+r.accDistRatio)*100).toFixed(0)+'% of everything traded in the base.');
+  }
+
+  if(r.revGrowth!==null && r.revGrowth!==undefined){
+    nuances.push('Behind the chart: revenue '+(r.revGrowth>=0?'+':'')+r.revGrowth+'% YoY'+(r.netMargin!==null&&r.netMargin!==undefined?' at a '+r.netMargin+'% net margin':'')+(r.epsGrowth!==null&&r.epsGrowth!==undefined?', EPS '+(r.epsGrowth>=0?'+':'')+r.epsGrowth+'%':'')+'. Fundamental score '+(r.fundScore||0)+'/3.');
+  }
+
+  if(r.daysToEvent!==null && r.daysToEvent!==undefined && r.daysToEvent<=21){
+    nuances.push('A scheduled event lands in '+r.daysToEvent+' days. Entering a breakout into a report means holding gap risk that no stop can protect against - either size down or wait for the print.');
+  }
+
+  if(r.candleSignals && r.candleSignals.some(function(x){return x.indexOf('Pivot')>-1;})) nuances.push('A pocket pivot fired inside the base: an up-day volume print larger than any down-day volume of the prior 10 sessions. That is institutional buying entering before the breakout is obvious.');
+
+  if(nuances.length===0) nuances.push('Not enough price history to build a read on this one yet.');
 
   var risks = [];
   if(stg!==2) risks.push('Not Stage 2. The trend template is unconfirmed, so buying here anticipates a stage change rather than trading one.');
@@ -798,7 +848,7 @@ function det(r){
   var nuanceHTML = '<div style=\"height:100%\"><div class=\"dh\">Aggressive Strategy Sentiment</div>'+
     '<div class=\"abox\" style=\"padding:12px;font-size:11.5px;border-left-color:var(--gold);background:rgba(212,175,55,.05);line-height:1.55\">'+
     '<strong style=\"color:var(--gold);display:block;margin-bottom:6px;font-size:10.5px\">STOCK VERDICT</strong>'+
-    bullets(nuances.slice(0,3), 'var(--gold)')+
+    bullets(nuances.slice(0,5), 'var(--gold)')+
     '<div style=\"margin-top:10px;padding-top:9px;border-top:1px solid rgba(212,175,55,.2)\">'+
     '<strong style=\"color:#ff9f43;display:block;margin-bottom:6px;font-size:10.5px\">WHAT ARGUES AGAINST IT</strong>'+
     bullets(risks.slice(0,4), '#ff9f43')+
