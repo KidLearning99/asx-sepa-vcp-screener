@@ -1007,10 +1007,103 @@ function det(r){
     '<div style=\"font-size:9px;color:var(--muted);line-height:1.45;margin-top:6px;border-top:1px solid var(--border);padding-top:5px\">Ticks and crosses mark the rules this screen can measure. Grey dots are judgement calls the data cannot decide for you - they are here as a checklist, not a verdict.</div>'+
     '</div></div>';
 
+  var _scoreCard = (function(){
+    var P = function(state,title,headline,body){ return {state:state,title:title,headline:headline,body:body}; };
+    var pills = [];
+
+    var cn={ma50:'price above the 50-day',ma150:'the 50-day above the 150-day',ma200:'the 150-day above the 200-day',trend:'a rising 200-day',high:'being within 25% of the 52-week high',low:'being well clear of the 52-week low',vol:'a volume breakout'};
+    var failed = r.checks ? Object.keys(r.checks).filter(function(k){return !r.checks[k];}).map(function(k){return cn[k]||k;}) : [];
+    pills.push(P(
+      _ttPass>=7?'pass':_ttPass>=5?'partial':'fail',
+      'Trend',
+      'Trend Template '+_ttPass+'/8, currently Stage '+stg,
+      _ttPass>=7
+        ? 'The structure is in place: price sits above all three moving averages with the shorter ones leading, and the 200-day is rising. This is the gate - Minervini does not buy a stock that fails it, no matter how good the story is.'
+        : 'The structure is incomplete'+(failed.length?', failing on '+failed.join(', ')+'':'')+'. A stock outside a confirmed uptrend is a watch item, not a candidate, because the whole method rests on joining a move that is already underway.'
+    ));
+
+    var fs = r.fundScore||0;
+    var rgv = (r.revGrowth===null||r.revGrowth===undefined)?null:r.revGrowth;
+    var egv = (r.epsGrowth===null||r.epsGrowth===undefined)?null:r.epsGrowth;
+    var fBody;
+    if(rgv===null && egv===null){ fBody='No revenue or earnings data came back for this name, so the fundamental leg cannot be tested. Treat the setup as technical only.'; }
+    else {
+      fBody='Revenue '+(rgv===null?'unknown':(rgv>=0?'+':'')+rgv+'% YoY')+', EPS '+(egv===null?'unknown':(egv>=0?'+':'')+egv+'%')+(r.netMargin!==null&&r.netMargin!==undefined?', net margin '+r.netMargin+'%':'')+'. ';
+      fBody += (rgv!==null&&rgv<0)||(egv!==null&&egv<0)
+        ? 'The business is going backwards while the chart holds up. Minervini wants both moving together - price leading earnings is how momentum trades turn into value traps.'
+        : 'Earnings and revenue are pointing the same way as the chart, which is the confirmation the method looks for.';
+    }
+    pills.push(P(fs>=3?'pass':fs>=1?'partial':'fail','Fundamentals','Fundamental score '+fs+'/3',fBody));
+
+    var cBody='This screen only knows scheduled dates. A genuine catalyst is a reason institutions started buying - a contract, an approval, a new product, a management change - and that has to be found in announcements, not in price data. ';
+    var cState='manual';
+    if(r.nextEventLabel || r.daysToEvent!==null&&r.daysToEvent!==undefined){
+      cBody += 'A scheduled event is '+(r.daysToEvent!==null&&r.daysToEvent!==undefined?r.daysToEvent+' days out':'on the calendar')+', which is a date to plan around rather than a catalyst in itself.';
+    } else {
+      cBody += 'Nothing is on the calendar in the near term.';
+    }
+    pills.push(P(cState,'Catalyst','Not assessable from price data',cBody));
+
+    var eState, eBody;
+    if(_pivot===null){ eState='manual'; eBody='Not enough price history to locate a pivot.'; }
+    else {
+      var near = Math.abs(_entryExt)<=5;
+      var tightOK = _bp ? _bp.contracting : false;
+      eState = (near && tightOK) ? 'pass' : near ? 'partial' : 'fail';
+      eBody='The 20-day high is '+CUR+_pivot.toFixed(2)+' and price is '+(_entryExt>=0?'+':'')+_entryExt.toFixed(1)+'% against it. '+
+        (tightOK?'Pullbacks are contracting window over window, so a real pivot has formed.':'Pullbacks are not contracting in order yet, so no clean pivot has formed'+(near?' even though price is close to the high':'')+'.')+
+        (_vdu!==null?' Volume over the last 5 sessions is '+(_vdu*100).toFixed(0)+'% of the 60-day average'+(_vdu<0.8?', the dry-up that usually precedes a break.':', so the base has not gone quiet.'):'');
+    }
+    pills.push(P(eState,'Entry Point',_pivot===null?'No pivot':'Pivot '+CUR+_pivot.toFixed(2),eBody));
+
+    var xState, xBody, xHead;
+    if(_stopPct===null){ xState='manual'; xHead='No valid stop'; xBody='Price is below its 50-day, so that stop would sit above the entry. There is no defined risk here, which means there is no trade.'; }
+    else {
+      xState = _stopPct<=8?'pass':_stopPct<=10?'partial':'fail';
+      xHead = _stopPct.toFixed(1)+'% risk to the 50-day';
+      xBody='A stop at the 50-day is '+_stopPct.toFixed(1)+'% below the current price, so a 1% account risk caps the position at about '+(100/_stopPct).toFixed(1)+'% of capital. '+
+        (_stopPct<=8?'That sits inside the 7-8% loss ceiling the method depends on.':'That is wider than the 7-8% ceiling - either wait for a tighter entry or accept a smaller position.')+((100/_stopPct)>25?' Note that a stop this tight implies a large position; concentration past roughly 25% of capital is its own risk.':'')+
+        ' The exit rules matter more than the entry: the edge comes from keeping the average gain at least twice the average loss, not from picking more winners.';
+    }
+    pills.push(P(xState,'Exit and Risk',xHead,xBody));
+
+    return pills;
+  })();
+
+  var scHTML = (function(){
+    var col={pass:'#00d084',partial:'#ff9f43',fail:'#ff4757',manual:'#5a7a9a'};
+    var ico={pass:'&#10003;',partial:'&#9679;',fail:'&#10007;',manual:'&#9679;'};
+    var lbl={pass:'Met',partial:'Partial',fail:'Not met',manual:'Manual check'};
+    var passed=0, testable=0;
+    for(var i=0;i<_scoreCard.length;i++){ if(_scoreCard[i].state!=='manual'){ testable++; if(_scoreCard[i].state==='pass') passed++; } }
+    var rows='';
+    for(var j=0;j<_scoreCard.length;j++){
+      var pl=_scoreCard[j], c=col[pl.state];
+      rows += '<div style=\"border-left:3px solid '+c+';background:var(--bg2);border-radius:5px;padding:8px 10px;margin-bottom:6px\">'+
+        '<div style=\"display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px\">'+
+        '<span style=\"font-size:10.5px;font-weight:800;color:#fff\">'+(j+1)+'. '+pl.title+'</span>'+
+        '<span style=\"font-size:9px;color:'+c+';font-weight:700\">'+ico[pl.state]+' '+lbl[pl.state]+'</span></div>'+
+        '<div style=\"font-size:9.5px;color:'+c+';margin-bottom:3px\">'+pl.headline+'</div>'+
+        '<div style=\"font-size:10px;color:var(--muted);line-height:1.5\">'+pl.body+'</div></div>';
+    }
+    var verdict = passed===testable
+      ? 'Every leg this screen can test is satisfied. What is left is the catalyst and the market backdrop, both of which are yours to judge.'
+      : passed===0
+      ? 'None of the testable legs hold. This is not a SEPA setup in its current state.'
+      : passed+' of the '+testable+' testable legs hold. Minervini treats these as cumulative rather than a majority vote - a strong chart does not compensate for a weak business, and neither compensates for a wide stop.';
+    return '<div style=\"margin-top:14px\"><div class=\"dh\">SEPA Scorecard &#8212; '+passed+'/'+testable+' testable legs</div>'+
+      rows+
+      '<div style=\"font-size:9.5px;color:var(--muted);line-height:1.5;padding:7px 10px;background:var(--bg3);border-radius:5px;border:1px solid var(--border)\">'+
+      '<strong style=\"color:var(--text)\">Read together: </strong>'+verdict+
+      ' The method is momentum, not value: it buys strength already in motion and depends on cutting the failures quickly. It also assumes a trending broad market - in a choppy one, breakouts fail in a run and the rules stop working.'+
+      '</div></div>';
+  })();
+
   var chartCol=\'<div style=\"display:flex;flex-direction:column;gap:12px\">\'+
     \'<div><div class=\"dh\">60-Day Candlestick + Volume (orange dash = MA50)</div>\'+
     drawCandles(r.ohlcv,r.ma50,r.price)+\'</div>\'+
     candleSigsHTML+
+    scHTML+
     \'</div>\';
 
   var sepaCol=\'<div>\'+
