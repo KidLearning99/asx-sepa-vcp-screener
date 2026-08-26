@@ -677,6 +677,48 @@ function det(r){
     '<div style="background:#1a0809;border:1px solid rgba(255,71,87,.25);border-radius:4px;padding:4px;text-align:center"><div style="font-size:7px;color:#5a7a9a;margin-bottom:2px">STOP LOSS</div><div style="font-size:11px;font-weight:700;color:#ff4757">'+CUR+stop.toFixed(2)+'</div></div>'+
     '</div></div>';
 
+  var _bp = (function(){
+    var oc = r.ohlcv || [];
+    if(oc.length < 30) return null;
+    var hg = oc.map(function(x){return x[1];});
+    var lo = oc.map(function(x){return x[2];});
+    var n = hg.length;
+    var dd = function(from,to){
+      from = Math.max(0,from); to = Math.min(n,to);
+      var peak=-1, worst=0;
+      for(var i=from;i<to;i++){
+        if(hg[i]>peak) peak=hg[i];
+        if(peak>0){ var d=(peak-lo[i])/peak*100; if(d>worst) worst=d; }
+      }
+      return worst;
+    };
+    var w1=dd(n-60,n-25), w2=dd(n-25,n-10), w3=dd(n-10,n);
+    var h5=Math.max.apply(null,hg.slice(-5)), l5=Math.min.apply(null,lo.slice(-5));
+    var hi60=Math.max.apply(null,hg.slice(Math.max(0,n-60)));
+    return { w1:w1, w2:w2, w3:w3,
+             tight:(h5-l5)/r.price*100,
+             hi60:hi60, fromHi:(hi60-r.price)/hi60*100,
+             contracting:(w3<w2 && w2<w1) };
+  })();
+
+  var bpHTML='';
+  if(_bp){
+    var bpRow=function(lbl,val,col){
+      return '<div style=\"display:flex;justify-content:space-between;padding:2px 0\"><span style=\"color:var(--muted)\">'+lbl+'</span><strong style=\"color:'+col+'\">'+val.toFixed(1)+'%</strong></div>';
+    };
+    bpHTML='<div style=\"margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:10px\">'+
+      '<div style=\"color:var(--text);font-weight:700;margin-bottom:4px\">Measured pullbacks (deepest high-to-low)</div>'+
+      bpRow('Sessions 60-25 ago', _bp.w1, '#5a7a9a')+
+      bpRow('Sessions 25-10 ago', _bp.w2, '#8bc34a')+
+      bpRow('Last 10 sessions', _bp.w3, '#00d084')+
+      '<div style=\"color:'+(_bp.contracting?'#00d084':'#ff9f43')+';margin-top:5px;line-height:1.45\">'+
+      (_bp.contracting ? 'Each window is tighter than the one before - a real contraction sequence, which is what the VCP pattern actually requires.' : 'The windows are not tightening in order, so this is not yet a true contraction sequence regardless of the score above.')+
+      '</div>'+
+      '<div style=\"color:var(--muted);margin-top:6px;line-height:1.45\">'+
+      'Last 5 sessions traded in a '+_bp.tight.toFixed(1)+'% range'+(_bp.tight<4?' - tight closes, the classic sign a pivot is near':'')+'. Price is '+_bp.fromHi.toFixed(1)+'% below the 60-day high of '+CUR+_bp.hi60.toFixed(2)+'.'+
+      '</div></div>';
+  }
+
   var vcpPointers = ['Base is loose or trending down. Wait for a constructive base to form.', 'Early signs of contraction. Still too loose to buy.', 'Base is forming. Watch for tightening spreads on the right side.', 'Good VCP forming. Volume is drying up. Stalk entry near pivot high.', 'Textbook VCP. Extreme volatility contraction. Prime entry setup on volume breakout.'][r.vcpScore];
 
   var adr = (r.accDistRatio !== undefined) ? r.accDistRatio : 1.0;
@@ -879,7 +921,7 @@ function det(r){
     evHtml+
     \'<div><div class=\"dh\" style=\"margin-top:12px;margin-bottom:5px\">Base Progression</div>\'+
     \'<div class=\"abox\" style=\"padding:10px;font-size:11px;border-left-color:var(--blue);line-height:1.4;background:var(--bg3)\">\'+
-    \'<strong style=\"color:#fff\">\'+vd+\'</strong><br/><span style=\"color:var(--muted)\">\'+vcpPointers+\'</span></div></div>\'+
+    \'<strong style=\"color:#fff\">\'+vd+\'</strong><br/><span style=\"color:var(--muted)\">\'+vcpPointers+\'</span>\'+bpHTML+\'</div></div>\'+
     smartMoneyHtml+
     \'</div>\';
     
