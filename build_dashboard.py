@@ -755,6 +755,54 @@ function det(r){
   else { pvCol='#ff4757'; pvShow=pv.toFixed(2);
     pvWhy='Price badly lagged the volume - buyers turned up but sellers absorbed most of the effort. Leans distribution unless Acc/Dist says otherwise.'; }
 
+  var _flow = (function(){
+    var oc = r.ohlcv || [];
+    if(!oc.length) return null;
+    var acc = function(rows){
+      var buy=0, sell=0, mfv=0, vsum=0;
+      for(var i=0;i<rows.length;i++){
+        var h=rows[i][1], l=rows[i][2], c=rows[i][3], v=rows[i][4];
+        var rng=h-l;
+        var frac = rng>0 ? (c-l)/rng : 0.5;
+        buy += v*frac; sell += v*(1-frac);
+        mfv += (rng>0 ? ((c-l)-(h-c))/rng : 0) * v;
+        vsum += v;
+      }
+      return { buy:buy, sell:sell, pct: (buy+sell)>0 ? buy/(buy+sell)*100 : 50, cmf: vsum>0 ? mfv/vsum : 0 };
+    };
+    var f20 = acc(oc.slice(-20)), f1 = acc(oc.slice(-1));
+    var obv=0, obvHist=[];
+    for(var k=1;k<oc.length;k++){
+      obv += (oc[k][3]>oc[k-1][3] ? oc[k][4] : (oc[k][3]<oc[k-1][3] ? -oc[k][4] : 0));
+      obvHist.push(obv);
+    }
+    var obvRising = obvHist.length>20 ? obvHist[obvHist.length-1] > obvHist[obvHist.length-21] : null;
+    return { f20:f20, f1:f1, obvRising:obvRising };
+  })();
+
+  var flowHTML='';
+  if(_flow){
+    var _fb = _flow.f20.pct, _ft = _flow.f1.pct, _cmf = _flow.f20.cmf;
+    var _fc = _fb>=55?'#00d084':_fb>=48?'#ff9f43':'#ff4757';
+    var _cmfTxt = _cmf>0.05?'net buying pressure':_cmf<-0.05?'net selling pressure':'balanced, with no clear side';
+    flowHTML='<div style=\"border-top:1px solid var(--border);margin-top:8px;padding-top:7px\">'+
+      '<div style=\"font-size:10px;font-weight:700;color:var(--text);margin-bottom:5px\">Estimated buy / sell split</div>'+
+      '<div style=\"display:flex;height:7px;border-radius:4px;overflow:hidden;margin-bottom:4px\">'+
+        '<div style=\"width:'+_fb.toFixed(1)+'%;background:#00d084\"></div>'+
+        '<div style=\"width:'+(100-_fb).toFixed(1)+'%;background:#ff4757\"></div>'+
+      '</div>'+
+      '<div style=\"display:flex;justify-content:space-between;font-size:9.5px;margin-bottom:5px\">'+
+        '<span style=\"color:#00d084\">Buy '+_fb.toFixed(0)+'%</span>'+
+        '<span style=\"color:var(--muted)\">last 20 sessions</span>'+
+        '<span style=\"color:#ff4757\">Sell '+(100-_fb).toFixed(0)+'%</span>'+
+      '</div>'+
+      '<div style=\"display:flex;justify-content:space-between;font-size:9.5px;padding:2px 0\"><span style=\"color:var(--muted)\">Today</span><strong style=\"color:'+(_ft>=55?'#00d084':_ft>=45?'#ff9f43':'#ff4757')+'\">Buy '+_ft.toFixed(0)+'% / Sell '+(100-_ft).toFixed(0)+'%</strong></div>'+
+      '<div style=\"display:flex;justify-content:space-between;font-size:9.5px;padding:2px 0\"><span style=\"color:var(--muted)\">Chaikin Money Flow (20)</span><strong style=\"color:'+_fc+'\">'+(_cmf>=0?'+':'')+_cmf.toFixed(3)+'</strong></div>'+
+      '<div style=\"display:flex;justify-content:space-between;font-size:9.5px;padding:2px 0\"><span style=\"color:var(--muted)\">OBV vs 20 sessions ago</span><strong style=\"color:'+(_flow.obvRising?'#00d084':'#ff4757')+'\">'+(_flow.obvRising===null?'n/a':(_flow.obvRising?'Rising':'Falling'))+'</strong></div>'+
+      '<div style=\"font-size:9.5px;color:var(--muted);line-height:1.45;margin-top:4px\">Money flow is '+_cmfTxt+'. This split is estimated from where each session closed inside its own range - a close near the high means buyers won the day. It is not the true bid/ask split, which needs tick data the daily feed does not carry.</div>'+
+      '</div>';
+  }
+
   var mRow = function(label, val, col, why){
     return '<div style=\"border-top:1px solid var(--border);padding-top:6px;margin-top:6px\">'+
       '<div style=\"display:flex;justify-content:space-between\"><span style=\"color:var(--muted)\">'+label+'</span>'+
@@ -770,6 +818,7 @@ function det(r){
     '<div style=\"font-size:9.5px;color:var(--muted);line-height:1.45\">'+adrWhy+'</div>'+
     mRow('Price/Vol (PVR):', pvShow, pvCol, pvWhy)+
     mRow('Vol vs 50D:', vr.toFixed(1)+'x', vrCol, vrWhy)+
+    flowHTML+
     '<div style=\"border-top:1px solid var(--border);margin-top:8px;padding-top:6px;font-size:9px;color:var(--muted);line-height:1.5\">'+
       '<strong style=\"color:var(--text)\">How these are built.</strong> '+
       '<b>Acc/Dist</b> adds up all volume on up days and divides it by all volume on down days across the last 60 sessions - above 1.0 means buyers were the aggressive side. This same test also gates the Stage 2 label: a stock cannot be called Advancing unless it is above 1.0. '+
