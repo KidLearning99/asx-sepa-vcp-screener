@@ -950,6 +950,63 @@ function det(r){
     '</div>'+
     '</div></div>';
 
+  var _rs = (function(){
+    try{
+      if(typeof D==='undefined' || !D.length || r.chg250d===null || r.chg250d===undefined) return null;
+      var better=0, n=0;
+      for(var i=0;i<D.length;i++){
+        var v=D[i].chg250d;
+        if(v!==null && v!==undefined){ n++; if(v < r.chg250d) better++; }
+      }
+      return n>0 ? Math.round(better/n*100) : null;
+    }catch(e){ return null; }
+  })();
+
+  var _ruleRow = function(state, text){
+    var ico = state===true ? '&#10003;' : state===false ? '&#10007;' : '&#9679;';
+    var col = state===true ? '#00d084' : state===false ? '#ff4757' : '#5a7a9a';
+    return '<div style=\"display:flex;gap:6px;padding:3px 0;align-items:flex-start\">'+
+      '<span style=\"color:'+col+';flex:none;font-size:10px;width:11px\">'+ico+'</span>'+
+      '<span style=\"color:'+(state===false?'var(--muted)':'var(--text)')+';font-size:9.5px;line-height:1.4\">'+text+'</span></div>';
+  };
+
+  var _tt = [];
+  _tt.push(_ruleRow(r.price>r.ma150 && r.price>r.ma200, 'Price above both the 150-day and 200-day moving averages'));
+  _tt.push(_ruleRow(r.ma150>r.ma200, 'The 150-day sits above the 200-day'));
+  _tt.push(_ruleRow(!!(r.checks && r.checks.trend), 'The 200-day is trending up, not flat or falling'));
+  _tt.push(_ruleRow(r.ma50>r.ma150 && r.ma50>r.ma200, 'The 50-day is above both longer averages'));
+  _tt.push(_ruleRow(r.price>r.ma50, 'Price is above the 50-day'));
+  _tt.push(_ruleRow(r.pctAboveLow>=30, 'At least 30% above the 52-week low (now '+r.pctAboveLow.toFixed(0)+'%)'));
+  _tt.push(_ruleRow(r.pctFromHigh<=25, 'Within 25% of the 52-week high (now '+r.pctFromHigh.toFixed(0)+'% below)'));
+  _tt.push(_ruleRow(_rs===null?null:(_rs>=70), _rs===null?'Relative strength rank - not computable':'Relative strength in the top 30% (this stock ranks '+_rs+'th percentile of the screened list on 12-month gain)'));
+  var _ttPass = (r.price>r.ma150&&r.price>r.ma200)+(r.ma150>r.ma200)+(!!(r.checks&&r.checks.trend))+(r.ma50>r.ma150&&r.ma50>r.ma200)+(r.price>r.ma50)+(r.pctAboveLow>=30)+(r.pctFromHigh<=25)+((_rs!==null&&_rs>=70)?1:0);
+
+  var ttHTML='<div style=\"margin-top:14px\"><div class=\"dh\">Trend Template &#8212; '+_ttPass+'/8</div>'+
+    '<div class=\"abox\" style=\"padding:9px;background:var(--bg3);border-left-color:'+(_ttPass>=7?'#00d084':_ttPass>=5?'#ff9f43':'#ff4757')+'\">'+
+    _tt.join('')+
+    '<div style=\"font-size:9px;color:var(--muted);line-height:1.45;margin-top:6px;border-top:1px solid var(--border);padding-top:5px\">All eight must hold before a stock is considered a Stage 2 candidate. The relative-strength rank is measured against the other names on this screen, not the whole market, so treat it as a guide rather than a true RS rating.</div>'+
+    '</div></div>';
+
+  var _entryExt = _pivot ? (r.price-_pivot)/_pivot*100 : null;
+  var _stopPct = (r.ma50 && r.ma50<r.price) ? (r.price-r.ma50)/r.price*100 : null;
+
+  var _pb = [];
+  _pb.push(_ruleRow(_stopPct===null?null:(_stopPct<=8), _stopPct===null?'Cut every loss at 7-8% below entry - no valid stop level here yet':'Cut every loss at 7-8% below entry (an MA50 stop is '+_stopPct.toFixed(1)+'% away)'));
+  _pb.push(_ruleRow(null, 'Risk no more than 1% of the account on any single position - size from the stop, never from conviction'));
+  _pb.push(_ruleRow(_entryExt===null?null:(_entryExt<=5 && _entryExt>=-5), _entryExt===null?'Buy only near the pivot':'Buy within about 5% of the pivot (price is '+(_entryExt>=0?'+':'')+_entryExt.toFixed(1)+'% against the 20-day high)'));
+  _pb.push(_ruleRow(null, 'Never average down into a losing position - add only to trades already working'));
+  _pb.push(_ruleRow(null, 'Keep the average gain at least twice the average loss; a 50% hit rate then still compounds'));
+  _pb.push(_ruleRow(null, 'Sell part of the position into strength on the way up rather than round-tripping the whole gain'));
+  _pb.push(_ruleRow((r.ma50 && r.price>r.ma50)?true:false, 'Exit if the stock closes below the 50-day on heavy volume'));
+  _pb.push(_ruleRow(null, 'Cut size after consecutive losses and add it back only once trades start working again'));
+  _pb.push(_ruleRow(null, 'Trade only when the broad market is in a confirmed uptrend - most breakouts fail in a corrective market'));
+
+  var pbHTML='<div style=\"margin-top:10px\"><div class=\"dh\">Risk &amp; Sell Discipline</div>'+
+    '<div class=\"abox\" style=\"padding:9px;background:var(--bg3);border-left-color:var(--gold)\">'+
+    _pb.join('')+
+    '<div style=\"font-size:9px;color:var(--muted);line-height:1.45;margin-top:6px;border-top:1px solid var(--border);padding-top:5px\">Ticks and crosses mark the rules this screen can measure. Grey dots are judgement calls the data cannot decide for you - they are here as a checklist, not a verdict.</div>'+
+    '</div></div>';
+
   var chartCol=\'<div style=\"display:flex;flex-direction:column;gap:12px\">\'+
     \'<div><div class=\"dh\">60-Day Candlestick + Volume (orange dash = MA50)</div>\'+
     drawCandles(r.ohlcv,r.ma50,r.price)+\'</div>\'+
@@ -963,6 +1020,7 @@ function det(r){
     \'<div class=\"pi\" style=\"margin-top:12px\"><span class=\"pk\">5D Chg</span><span class=\"\'+(r.chg5d>=0?\"gn\":\"rd\")+\'\">\'+(r.chg5d>=0?\"+\":\"\")+r.chg5d+\'%</span></div>\'+
     \'<div class=\"pi\"><span class=\"pk\">60D Chg</span><span class=\"\'+(r.chg60d>=0?\"gn\":\"rd\")+\'\">\'+(r.chg60d>=0?\"+\":\"\")+r.chg60d+\'%</span></div>\'+
     \'<div class=\"pi\"><span class=\"pk\">12M Chg</span><span class=\"\'+(r.chg250d>=0?\"gn\":\"rd\")+\'\">\'+(r.chg250d>=0?\"+\":\"\")+r.chg250d+\'%</span></div>\'+
+    ttHTML+
     \'</div>\';
 
   var vcpCol=\'<div>\'+
@@ -979,6 +1037,7 @@ function det(r){
     \'<div class=\"abox\" style=\"margin-top:6px;padding:10px;line-height:1.6\">\'+
     \'<div style=\"font-weight:800;font-size:9px;color:var(--text);margin-bottom:6px;letter-spacing:0.5px\">SUMMARY</div>\'+(r.analysis || \"Awaiting breakout confirmation.\")+
     \'<div class=\"aact \'+ac+\'\" style=\"margin-top:8px\">\'+at+\'</div></div>\'+
+    pbHTML+
     \'</div>\';
 
   return \'<div class=\"dpanel\">\'+chartCol+sepaCol+fundCol+vcpCol+tradeCol+nuanceHTML+\'</div>\';
