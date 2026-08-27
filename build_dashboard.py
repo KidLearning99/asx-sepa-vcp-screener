@@ -2,7 +2,8 @@
 build_dashboard.py — builds the HTML dashboard from screener data
 Called by screener.py
 """
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 import json
 
 
@@ -17,7 +18,10 @@ STAGE_LBL = {1: "S1 Neglect", 2: "S2 Advancing", 3: "S3 Topping", 4: "S4 Declini
 
 
 def build(data, source="Yahoo Finance (live)"):
-    today_str = date.today().strftime("%d %b %Y")
+    MELBOURNE = ZoneInfo("Australia/Melbourne")
+    _now      = datetime.now(MELBOURNE)
+    today_str = _now.strftime("%d %b %Y")
+    stamp_str = _now.strftime("%d %b %Y, %I:%M %p %Z").lstrip("0").replace(" 0", " ")
 
     def _jsafe(o):
         if hasattr(o, 'item'): return o.item()
@@ -315,7 +319,7 @@ footer{background:#040710;border-top:1px solid var(--border);padding:18px 24px;t
 <nav>
   <div class="nlogo"><div class="ndot"></div>SEPA+VCP ASX Screener</div>
   <div class="nlinks"><a href="#picks">Top Picks</a><a href="#screener">Screener</a></div>
-  <span class="nbadge">&#x25cf; Live &mdash; {today_str}</span>
+  <span class="nbadge">&#x25cf; Live &mdash; {stamp_str}</span>
 </nav>
 
 <div class="hero">
@@ -393,7 +397,7 @@ footer{background:#040710;border-top:1px solid var(--border);padding:18px 24px;t
 </div>
 
 <footer>
-  <strong>SEPA + VCP ASX Screener</strong> &middot; Data: Yahoo Finance &middot; Generated {today_str}<br>
+  <strong>SEPA + VCP ASX Screener</strong> &middot; Data: Yahoo Finance &middot; Generated {stamp_str} (Melbourne time)<br>
   <span style="font-size:10px;opacity:.55">&#x26A0;&#xFE0F; For educational and research purposes only. Not financial advice. Always conduct your own due diligence and consult a licensed financial adviser before making investment decisions. All prices in AUD.</span>
 </footer>
 
@@ -1148,7 +1152,7 @@ render();
 </script>
 </body>
 </html>"""
-    html = tmpl.replace("{today_str}", today_str)
+    html = tmpl.replace("{stamp_str}", stamp_str).replace("{today_str}", today_str)
     html = html.replace("{json_data}", json_data)
     html = html.replace("{sector_opts}", sector_opts)
     html = html.replace("{top_html}", top_html)
