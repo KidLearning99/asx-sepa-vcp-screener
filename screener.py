@@ -1,6 +1,14 @@
 import yfinance as yf
 import json, os, time, requests, random
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
+MELBOURNE = ZoneInfo("Australia/Melbourne")
+
+def today_melb():
+    """Local trading date. The runner is UTC, which is a day behind Melbourne
+    for every scheduled run, so never use date.today() here."""
+    return datetime.now(MELBOURNE).date()
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib3.util.retry import Retry
@@ -414,7 +422,7 @@ def enrich_stock(r):
 
         # Calendar (inline)
         try:
-            today = date.today()
+            today = today_melb()
             cal   = t.calendar
             if isinstance(cal, dict):
                 ed_list = cal.get('Earnings Date') or cal.get('earningsDate') or []
@@ -538,7 +546,7 @@ def fetch_all():
 # Deployment is handled by GitHub Pages via the workflow — no publish function needed.
 
 if __name__ == "__main__":
-    print(f"SEPA+VCP ASX Screener - {date.today()}")
+    print(f"SEPA+VCP ASX Screener - {today_melb()} (Melbourne)")
     data = fetch_all()
     b = sum(1 for r in data if r['status'] == 'breakout')
     p = sum(1 for r in data if r['status'] == 'near-pivot')
@@ -559,6 +567,6 @@ if __name__ == "__main__":
         import traceback
         tb = traceback.format_exc()
         print(f"BUILD FAILED:\n{tb}")
-        fallback = f'<html><body><pre style="padding:20px">Build error ({date.today()}):\n{tb}</pre></body></html>'
+        fallback = f'<html><body><pre style="padding:20px">Build error ({today_melb()}):\n{tb}</pre></body></html>'
         with open('index.html', 'w', encoding='utf-8') as f: f.write(fallback)
         print("Wrote fallback index.html for debugging")
