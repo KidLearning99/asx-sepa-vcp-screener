@@ -17,10 +17,11 @@ STAGE_BD  = {1: "rgba(90,122,154,.3)", 2: "rgba(0,208,132,.3)", 3: "rgba(255,159
 STAGE_LBL = {1: "S1 Neglect", 2: "S2 Advancing", 3: "S3 Topping", 4: "S4 Declining"}
 
 
-def build(data, source="Yahoo Finance (live)"):
+def build(data, source="Yahoo Finance (live)", min_cap=100_000_000):
     MELBOURNE = ZoneInfo("Australia/Melbourne")
     _now      = datetime.now(MELBOURNE)
     today_str = _now.strftime("%d %b %Y")
+    cap_str   = (f"${min_cap/1e9:g}B" if min_cap >= 1e9 else f"${min_cap/1e6:g}M")
     stamp_str = _now.strftime("%d %b %Y, %I:%M %p %Z").lstrip("0").replace(" 0", " ")
 
     def _jsafe(o):
@@ -29,17 +30,22 @@ def build(data, source="Yahoo Finance (live)"):
         raise TypeError(repr(o))
 
     def _clean(obj):
+        if isinstance(obj, float) and obj != obj:  # NaN -> null (valid JSON)
+            return None
         if isinstance(obj, str):  return obj.encode('utf-8', errors='replace').decode('utf-8')
         if isinstance(obj, dict): return {k: _clean(v) for k, v in obj.items()}
         if isinstance(obj, list): return [_clean(v) for v in obj]
         return obj
     data = [_clean(r) for r in data]
+    for r in data:  # drop any candle with a missing value so charts/maths never see null
+        r["ohlcv"] = [c for c in (r.get("ohlcv") or []) if all(v is not None for v in c)]
     json_data = json.dumps(data, default=_jsafe)
 
     n        = len(data)
     breakouts = [r for r in data if r["status"] == "breakout"]
     pivots    = [r for r in data if r["status"] == "near-pivot"]
     watching  = [r for r in data if r["status"] == "watch"]
+    ipos      = [r for r in data if r.get("ipo")]
     stage1    = [r for r in data if r.get("stage") == 1]
     stage2    = [r for r in data if r.get("stage") == 2]
     stage3    = [r for r in data if r.get("stage") == 3]
@@ -47,8 +53,20 @@ def build(data, source="Yahoo Finance (live)"):
     sectors   = sorted(set(r["sector"] for r in data if r["sector"]))
     sector_opts = "".join(f'<option value="{s}">{s}</option>' for s in sectors)
 
+    def _tradeable(r):
+        # Exclude circuit-locked runs (high = low = close for 2+ sessions) and
+        # thinly traded names from the Top 10 - their indicators overstate strength.
+        o = r.get("ohlcv") or []
+        lock = 0
+        for c in reversed(o):
+            if c and c[1] == c[2] == c[3]: lock += 1
+            else: break
+        tail = [c for c in o[-20:] if c and c[3] and c[4] is not None]
+        adv = sum(c[3] * c[4] for c in tail) / len(tail) if tail else 0
+        return lock < 2 and adv >= 2e5
+
     top = sorted(
-        breakouts + [r for r in pivots if r["sepaScore"] >= 5],
+        [r for r in breakouts + [r for r in pivots if r["sepaScore"] >= 5] if _tradeable(r)],
         key=lambda x: (x["sepaScore"], x["vcpScore"], x["volRatio"]),
         reverse=True
     )[:10]
@@ -324,7 +342,7 @@ footer{background:#040710;border-top:1px solid var(--border);padding:18px 24px;t
 
 <div class="hero">
   <h1>ASX Stock Screener<br><span>SEPA &middot; VCP &middot; Minervini Stages</span></h1>
-  <p>Minervini's Stage 2 Trend Template with VCP analysis, net revenue trend, EPS growth, Minervini lifecycle stage classification (1&ndash;4), and 60-day candlestick charts &mdash; applied to every ASX stock over $100M market cap.</p>
+  <p>Minervini's Stage 2 Trend Template with VCP analysis, net revenue trend, EPS growth, Minervini lifecycle stage classification (1&ndash;4), and 60-day candlestick charts &mdash; applied to every ASX stock over {cap_str} market cap.</p>
   <div class="hero-stats">
     <div class="hs"><div class="hs-n" style="color:var(--green)">{len(breakouts)}</div><div class="hs-l">Breakouts</div></div>
     <div class="hs"><div class="hs-n" style="color:var(--blue)">{len(pivots)}</div><div class="hs-l">Near Pivot</div></div>
@@ -364,6 +382,7 @@ footer{background:#040710;border-top:1px solid var(--border);padding:18px 24px;t
   <button class="fbtn" onclick="setF('breakout',this)">&#x1F7E2; Breakout ({len(breakouts)})</button>
   <button class="fbtn" onclick="setF('near-pivot',this)">&#x1F535; Near Pivot ({len(pivots)})</button>
   <button class="fbtn" onclick="setF('watch',this)">&#x1F7E1; Watch ({len(watching)})</button>
+  <button class="fbtn" onclick="setF('ipo',this)" title="Listed less than 200 sessions ago">&#x1F195; Recent IPOs ({len(ipos)})</button>
   <div class="tsep"></div>
   <button class="fbtn s2" id="tb-s2" onclick="setStageFilter(2,this)">S2 Advancing ({len(stage2)})</button>
   <button class="fbtn s1" id="tb-s1" onclick="setStageFilter(1,this)">S1 Neglect ({len(stage1)})</button>
@@ -397,7 +416,7 @@ footer{background:#040710;border-top:1px solid var(--border);padding:18px 24px;t
 </div>
 
 <footer>
-  <strong>SEPA + VCP ASX Screener</strong> &middot; Data: Yahoo Finance &middot; Generated {stamp_str} (Melbourne time)<br>
+  <strong>SEPA + VCP ASX Screener</strong> &middot; Data: Yahoo Finance, ASX &middot; Generated {stamp_str} (Melbourne time)<br>
   <span style="font-size:10px;opacity:.55">&#x26A0;&#xFE0F; For educational and research purposes only. Not financial advice. Always conduct your own due diligence and consult a licensed financial adviser before making investment decisions. All prices in AUD.</span>
 </footer>
 
@@ -462,9 +481,472 @@ function revTrendChip(trend){
   return e[0]?'<div class="'+e[0]+'">'+e[1]+'</div>':'';
 }
 
+function _num(v){return typeof v==='number'&&isFinite(v);}
+function _pc(v,d){if(!_num(v))return '<span style="color:#3d5a78">n/a</span>';var c=v>=0?'#00d084':'#ff4757';return '<span style="color:'+c+'">'+(v>=0?'+':'')+v.toFixed(d===undefined?1:d)+'%</span>';}
+function _kv(l,v){return '<tr><td class="mlb">'+l+'</td><td class="mgv">'+v+'</td></tr>';}
+function _barRow(lbl,v,scale){
+  if(!_num(v))return '';
+  var w=Math.min(Math.abs(v)/scale*50,50),c=v>=0?'#00d084':'#ff4757';
+  var bar='<div style="position:relative;height:5px;background:var(--bg4);border-radius:3px;margin-top:3px">'+
+    '<div style="position:absolute;left:50%;top:-2px;width:1px;height:9px;background:#3d5a78"></div>'+
+    '<div style="position:absolute;top:0;height:5px;border-radius:3px;background:'+c+';'+(v>=0?'left:50%':'right:50%')+';width:'+w+'%"></div></div>';
+  return '<div style="margin-bottom:7px"><div style="display:flex;justify-content:space-between;font-size:10px"><span style="color:var(--muted)">'+lbl+'</span><strong style="font-family:JetBrains Mono">'+_pc(v)+'</strong></div>'+bar+'</div>';
+}
+function _tag(txt,c){return '<span style="font-size:8.5px;font-weight:700;color:'+c+';border:1px solid '+c+'55;background:'+c+'14;border-radius:3px;padding:0 4px;margin-left:5px">'+txt+'</span>';}
+function _gauge(v,lo,hi){
+  if(!_num(v))return '';
+  var p=Math.max(0,Math.min(100,v));
+  return '<div style="position:relative;height:5px;border-radius:3px;margin:3px 0 7px;background:linear-gradient(90deg,#00d084 0,#00d084 '+lo+'%,#1e2d45 '+lo+'%,#1e2d45 '+hi+'%,#ff4757 '+hi+'%,#ff4757 100%);opacity:.8">'+
+    '<div style="position:absolute;left:calc('+p+'% - 1px);top:-3px;width:3px;height:11px;border-radius:1px;background:#e8f0fe"></div></div>';
+}
+function _trow(lbl,val,tag){return '<div style="display:flex;justify-content:space-between;align-items:center;font-size:10px;margin-top:5px"><span style="color:var(--muted)">'+lbl+'</span><span style="font-family:JetBrains Mono;font-weight:700;color:#e8f0fe;white-space:nowrap">'+val+(tag||'')+'</span></div>';}
+function techHTML(r){
+  var t=r.tech||{}; if(!Object.keys(t).length)return '';
+  var G='#00d084',A='#ff9f43',R='#ff4757',B='#3b82f6',M='#5a7a9a';
+  var o='<div class="mv"><div class="dh" style="margin-top:14px">Technical Indicators</div>';
+  if(_num(t.rsi)){
+    var rt=t.rsi>=70?_tag('OVERBOUGHT',R):t.rsi<=30?_tag('OVERSOLD',G):t.rsi>=50?_tag('BULLISH',G):_tag('WEAK',A);
+    o+=_trow('RSI (14)',t.rsi.toFixed(1),rt)+_gauge(t.rsi,30,70);
+  }
+  if(_num(t.stochK)){
+    var st=t.stochK>=80?_tag('OVERBOUGHT',R):t.stochK<=20?_tag('OVERSOLD',G):(_num(t.stochD)&&t.stochK>t.stochD?_tag('RISING',G):_tag('FALLING',A));
+    o+=_trow('Stoch %K / %D',t.stochK.toFixed(0)+' / '+(_num(t.stochD)?t.stochD.toFixed(0):'-'),st)+_gauge(t.stochK,20,80);
+  }
+  if(_num(t.macdHist)){
+    var mt=t.macdHist>0?(t.macdHist>=(t.macdHistPrev||0)?_tag('BULL RISING',G):_tag('BULL FADING',A)):(t.macdHist<=(t.macdHistPrev||0)?_tag('BEAR FALLING',R):_tag('BEAR EASING',A));
+    o+=_trow('MACD hist',(t.macdHist>=0?'+':'')+t.macdHist.toFixed(2),mt);
+    o+=_trow('MACD / signal',t.macd.toFixed(2)+' / '+t.macdSignal.toFixed(2),t.macdCross?_tag(t.macdCross.toUpperCase(),t.macdCross.indexOf('bull')===0?G:R):'');
+  }
+  if(_num(t.adx)){
+    var at=t.adx>=25?(t.plusDI>=t.minusDI?_tag('STRONG UP',G):_tag('STRONG DOWN',R)):_tag('NO TREND',M);
+    o+=_trow('ADX (14)',t.adx.toFixed(0),at);
+    if(_num(t.plusDI))o+=_trow('+DI / -DI','<span style="color:'+G+'">'+t.plusDI.toFixed(0)+'</span> / <span style="color:'+R+'">'+t.minusDI.toFixed(0)+'</span>');
+  }
+  if(_num(t.atrPct))o+=_trow('ATR (14)',CUR+t.atr.toFixed(2)+' &middot; '+t.atrPct.toFixed(1)+'%',t.atrPct>5?_tag('VOLATILE',A):t.atrPct<2?_tag('QUIET',G):'');
+  if(_num(t.bbPctB)){
+    o+=_trow('Bollinger %B',t.bbPctB.toFixed(0)+'%',t.bbPctB>100?_tag('ABOVE BAND',A):t.bbPctB<0?_tag('BELOW BAND',R):'');
+    if(_num(t.bbWidth)){
+      var sq=_num(t.bbWidthPctile)&&t.bbWidthPctile<=20;
+      o+=_trow('Band width',t.bbWidth.toFixed(1)+'%'+(_num(t.bbWidthPctile)?' <span style="color:'+M+';font-weight:400">p'+t.bbWidthPctile.toFixed(0)+'</span>':''),sq?_tag('SQUEEZE',B):'');
+    }
+  }
+  o+='</div><div class="mv">';
+  if(_num(t.rs3m)||_num(t.rs12m)){
+    o+='<div class="dh" style="margin-top:14px">Relative Strength vs ASX 200</div>';
+    o+=_barRow('3 months',t.rs3m,40)+_barRow('6 months',t.rs6m,60)+_barRow('12 months',t.rs12m,100);
+    if(t.rsLineHigh)o+='<div style="font-size:10px;color:'+G+';font-weight:700;margin-top:-2px">&#9650; RS line at a 52-week high</div>';
+  }
+  o+='<div style="font-size:9px;color:#3d5a78;margin-top:8px;line-height:1.5">Calculated from 1 year of daily closes. Tags are rules of thumb, not signals on their own.</div></div>';
+  return o;
+}
+function tech2HTML(r){
+  var t=r.tech||{}; if(!Object.keys(t).length)return '';
+  var G='#00d084',A='#ff9f43',R='#ff4757',M='#5a7a9a',B='#3b82f6';
+  var o='<div class="mv"><div class="abox" style="margin-top:10px;padding:10px;line-height:1.5">';
+  var hd=function(x,top){return '<div style="font-weight:800;font-size:9px;color:var(--text);margin:'+(top?0:10)+'px 0 4px;letter-spacing:.5px">'+x+'</div>';};
+  // Moving-average stack
+  var m=t.mas||{},names=[['ema10','EMA 10'],['ema21','EMA 21'],['sma20','SMA 20'],['sma50','SMA 50'],['sma100','SMA 100'],['sma200','SMA 200']];
+  var above=0,tot=0;
+  o+=hd('MOVING AVERAGES',1);
+  names.forEach(function(n){var x=m[n[0]];if(!x||!_num(x.v))return;tot++;if(x.d>=0)above++;
+    var ar=_num(x.slope)?(x.slope>0?'<span style="color:'+G+'">&#9650;</span>':x.slope<0?'<span style="color:'+R+'">&#9660;</span>':''):'';
+    o+=_trow(n[1]+' '+ar,CUR+x.v.toFixed(2)+' <span style="color:'+(x.d>=0?G:R)+';font-weight:400">'+(x.d>=0?'+':'')+x.d.toFixed(1)+'%</span>');});
+  if(tot){var ok=_num((m.ema10||{}).v)&&_num((m.ema21||{}).v)&&_num((m.sma50||{}).v)&&m.ema10.v>m.ema21.v&&m.ema21.v>m.sma50.v;
+    o+='<div style="font-size:9.5px;margin-top:4px;color:'+(above===tot?G:above>=tot/2?A:R)+'">Price above '+above+' of '+tot+(ok?' &middot; short MAs stacked bullish':'')+'</div>';}
+  // Oscillators
+  o+=hd('MOMENTUM');
+  if(_num(t.willR))o+=_trow('Williams %R',t.willR.toFixed(0),t.willR>-20?_tag('OVERBOUGHT',R):t.willR<-80?_tag('OVERSOLD',G):'');
+  if(_num(t.cci))o+=_trow('CCI (20)',t.cci.toFixed(0),t.cci>100?_tag('STRONG',G):t.cci<-100?_tag('WEAK',R):'');
+  if(_num(t.roc10))o+=_trow('ROC 10 / 20',_pc(t.roc10)+' / '+_pc(t.roc20));
+  // Volume-based
+  o+='</div></div><div class="mv"><div class="abox" style="margin-top:10px;padding:10px;line-height:1.5">'+hd('MONEY FLOW',1);
+  if(_num(t.mfi))o+=_trow('MFI (14)',t.mfi.toFixed(0),t.mfi>=80?_tag('OVERBOUGHT',R):t.mfi<=20?_tag('OVERSOLD',G):t.mfi>=50?_tag('INFLOW',G):_tag('OUTFLOW',A))+_gauge(t.mfi,20,80);
+  if(_num(t.obvTrend))o+=_trow('OBV',(t.obvTrend>=0?'+':'')+t.obvTrend.toFixed(1)+'x',t.obvTrend>0?_tag('ACCUMULATING',G):_tag('DISTRIBUTING',R));
+  // Trend tools
+  o+=hd('TREND');
+  if(_num(t.sar))o+=_trow('Parabolic SAR',CUR+t.sar.toFixed(2),t.sarBull?_tag('UP '+t.sarAge+'D',G):_tag('DOWN '+t.sarAge+'D',R));
+  if(t.ichi)o+=_trow('Ichimoku cloud',t.ichi==='above'?'<span style="color:'+G+'">Above</span>':t.ichi==='below'?'<span style="color:'+R+'">Below</span>':'<span style="color:'+A+'">Inside</span>',t.tkCross==='bull'?_tag('TK BULL',G):_tag('TK BEAR',R));
+  if(_num(t.keltPos))o+=_trow('Keltner position',t.keltPos.toFixed(0)+'%',t.keltPos>100?_tag('ABOVE',A):t.keltPos<0?_tag('BELOW',R):'');
+  if(_num(t.donHi))o+=_trow('20D channel',CUR+t.donLo.toFixed(2)+' - '+CUR+t.donHi.toFixed(2),t.donBreak==='up'?_tag('NEW HIGH',G):t.donBreak==='down'?_tag('NEW LOW',R):'');
+  // Overall tally
+  var bu=0,be=0,f=function(c){if(c===true)bu++;else if(c===false)be++;};
+  f(_num(t.rsi)?t.rsi>=50:null);f(_num(t.macdHist)?t.macdHist>0:null);f(_num(t.stochK)&&_num(t.stochD)?t.stochK>t.stochD:null);
+  f(_num(t.plusDI)?t.plusDI>t.minusDI:null);f(_num(t.mfi)?t.mfi>=50:null);f(_num(t.obvTrend)?t.obvTrend>0:null);
+  f(typeof t.sarBull==='boolean'?t.sarBull:null);f(t.ichi==='above'?true:t.ichi==='below'?false:null);f(_num(t.cci)?t.cci>0:null);
+  f(tot?above>tot/2:null);
+  var n=bu+be;
+  if(n){var pct=bu/n*100,col=pct>=70?G:pct>=40?A:R,lbl=pct>=70?'MOSTLY BULLISH':pct>=40?'MIXED':'MOSTLY BEARISH';
+    o+=hd('INDICATOR TALLY')+
+      '<div style="display:flex;height:7px;border-radius:4px;overflow:hidden;background:#1e2d45"><div style="width:'+pct+'%;background:'+G+'"></div><div style="flex:1;background:'+R+'"></div></div>'+
+      _trow('<span style="color:'+G+'">'+bu+' bullish</span> / <span style="color:'+R+'">'+be+' bearish</span>','',_tag(lbl,col));}
+  o+='</div></div>';
+  return o;
+}
+function _line(vals,w,hgt,col,mn,mx){
+  var pts=[],n=vals.length;
+  for(var i=0;i<n;i++){var v=vals[i];if(!_num(v))continue;pts.push((i/(n-1)*w).toFixed(1)+','+(hgt-(v-mn)/(mx-mn||1)*hgt).toFixed(1));}
+  return '<polyline fill="none" stroke="'+col+'" stroke-width="1.4" points="'+pts.join(' ')+'"/>';
+}
+function _range(arrs){var mn=Infinity,mx=-Infinity;arrs.forEach(function(a){(a||[]).forEach(function(v){if(_num(v)){if(v<mn)mn=v;if(v>mx)mx=v;}});});return [mn,mx];}
+function _pane(title,val,body,h){
+  return '<div class="mv" style="margin-top:10px"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);font-weight:700;letter-spacing:.6px;text-transform:uppercase;margin-bottom:3px"><span>'+title+'</span><span style="font-family:JetBrains Mono;text-transform:none">'+val+'</span></div>'+
+    '<svg viewBox="0 0 500 '+h+'" preserveAspectRatio="none" style="width:100%;height:'+h+'px;display:block;background:#070c17;border:1px solid var(--border);border-radius:4px">'+body+'</svg></div>';
+}
+function indChartsHTML(r){
+  var t=r.tech||{},W=500,o='';
+  if(t.rsiS&&t.rsiS.length>5){
+    var H=70,y=function(v){return (H-v/100*H).toFixed(1);};
+    var b='<rect x="0" y="0" width="'+W+'" height="'+y(70)+'" fill="#ff475712"/><rect x="0" y="'+y(30)+'" width="'+W+'" height="'+(H-y(30))+'" fill="#00d08412"/>'+
+      '<line x1="0" x2="'+W+'" y1="'+y(70)+'" y2="'+y(70)+'" stroke="#ff475766" stroke-dasharray="3,3"/><line x1="0" x2="'+W+'" y1="'+y(50)+'" y2="'+y(50)+'" stroke="#3d5a7844" stroke-dasharray="2,4"/><line x1="0" x2="'+W+'" y1="'+y(30)+'" y2="'+y(30)+'" stroke="#00d08466" stroke-dasharray="3,3"/>'+
+      _line(t.rsiS,W,H,'#a78bfa',0,100);
+    o+=_pane('RSI (14), 60D &middot; 70 / 30',_num(t.rsi)?t.rsi.toFixed(1):'',b,H);
+  }
+  if(t.histS&&t.histS.length>5){
+    var H2=80,rg=_range([t.macdS,t.sigS,t.histS]),mx=Math.max(Math.abs(rg[0]),Math.abs(rg[1]))||1,mn=-mx;
+    var yy=function(v){return H2-(v-mn)/(mx-mn)*H2;},n=t.histS.length,bw=W/n*0.7,b2='<line x1="0" x2="'+W+'" y1="'+yy(0)+'" y2="'+yy(0)+'" stroke="#3d5a78"/>';
+    for(var i=0;i<n;i++){var v=t.histS[i];if(!_num(v))continue;var x=i/(n-1)*W-bw/2,y0=yy(0),y1=yy(v);
+      var up=i>0&&_num(t.histS[i-1])?Math.abs(v)>=Math.abs(t.histS[i-1]):true;
+      var col=v>=0?(up?'#00d084':'#00d08466'):(up?'#ff4757':'#ff475766');
+      b2+='<rect x="'+x.toFixed(1)+'" y="'+Math.min(y0,y1).toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+Math.max(Math.abs(y1-y0),0.5).toFixed(1)+'" fill="'+col+'"/>';}
+    b2+=_line(t.macdS,W,H2,'#3b82f6',mn,mx)+_line(t.sigS,W,H2,'#ff9f43',mn,mx);
+    o+=_pane('MACD 60D &middot; <span style="color:#3b82f6">MACD</span> <span style="color:#ff9f43">signal</span>',_num(t.macdHist)?'hist '+(t.macdHist>=0?'+':'')+t.macdHist.toFixed(2):'',b2,H2);
+  }
+  if(t.rsS&&t.rsS.length>5){
+    var H3=60,rg3=_range([t.rsS]),pad=(rg3[1]-rg3[0])*0.1||1,last=t.rsS[t.rsS.length-1];
+    var b3='<line x1="0" x2="'+W+'" y1="'+(H3-(100-rg3[0]+pad)/(rg3[1]-rg3[0]+2*pad)*H3).toFixed(1)+'" y2="'+(H3-(100-rg3[0]+pad)/(rg3[1]-rg3[0]+2*pad)*H3).toFixed(1)+'" stroke="#3d5a78" stroke-dasharray="3,3"/>'+
+      _line(t.rsS,W,H3,last>=100?'#00d084':'#ff4757',rg3[0]-pad,rg3[1]+pad);
+    o+=_pane('RS line vs ASX 200, 60D',_num(last)?last.toFixed(1):'',b3,H3);
+  }
+  return o;
+}
+function srHTML(r){
+  var t=r.tech||{},px=r.price,G='#00d084',R='#ff4757',M='#5a7a9a';
+  if(!_num(px))return '';
+  var d=function(v){return '<span style="color:'+M+';font-weight:400">'+((v-px)/px*100>=0?'+':'')+((v-px)/px*100).toFixed(1)+'%</span>';};
+  var o='<div class="mv"><div class="abox" style="margin-top:12px;padding:10px;line-height:1.5"><div style="font-weight:800;font-size:9px;color:var(--text);margin-bottom:4px;letter-spacing:.5px">SUPPORT &amp; RESISTANCE</div>';
+  (t.res||[]).slice().reverse().forEach(function(x){o+=_trow('Resistance'+(x.n>1?' &times;'+x.n:''),'<span style="color:'+R+'">'+CUR+x.v.toFixed(2)+'</span> '+d(x.v));});
+  o+='<div style="display:flex;justify-content:space-between;font-size:10px;margin:5px 0;padding:3px 0;border-top:1px dashed #3d5a78;border-bottom:1px dashed #3d5a78"><span style="color:#e8f0fe;font-weight:700">Price</span><span style="font-family:JetBrains Mono;font-weight:700;color:#e8f0fe">'+CUR+px.toFixed(2)+'</span></div>';
+  (t.sup||[]).forEach(function(x){o+=_trow('Support'+(x.n>1?' &times;'+x.n:''),'<span style="color:'+G+'">'+CUR+x.v.toFixed(2)+'</span> '+d(x.v));});
+  if(!(t.res||[]).length)o+='<div style="font-size:9.5px;color:'+G+';margin-top:4px">No swing resistance overhead in 6 months.</div>';
+  o+='</div></div><div class="mv"><div class="abox" style="margin-top:12px;padding:10px;line-height:1.5">';
+  if(t.fib){var f=t.fib;
+    o+='<div style="font-weight:800;font-size:9px;color:var(--text);margin:0 0 4px;letter-spacing:.5px">FIBONACCI <span style="color:'+M+';font-weight:400">('+(f.up?'pullback of 60D rise':'bounce of 60D fall')+')</span></div>';
+    ['0.236','0.382','0.5','0.618','0.786'].forEach(function(k){var v=f.lv[k];if(!_num(v))return;var near=Math.abs(v-px)/px<0.015;
+      o+=_trow((parseFloat(k)*100).toFixed(1)+'%',(near?'<span style="color:#ff9f43">&#9679; </span>':'')+CUR+v.toFixed(2)+' '+d(v));});
+  }
+  if(t.pivots){var p=t.pivots;
+    o+='<div style="font-weight:800;font-size:9px;color:var(--text);margin:10px 0 4px;letter-spacing:.5px">PIVOT POINTS <span style="color:'+M+';font-weight:400">(next session)</span></div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:3px;font-size:9.5px;font-family:JetBrains Mono;text-align:center">'+
+      ['R3','R2','R1','S1','S2','S3'].map(function(k){return '<div style="background:#0a1120;border-radius:3px;padding:2px"><div style="color:'+M+';font-size:8px">'+k+'</div><div style="color:'+(k[0]==='R'?R:G)+'">'+(_num(p[k])?p[k].toFixed(2):'-')+'</div></div>';}).join('')+
+      '</div>'+_trow('Pivot (P)',CUR+(_num(p.P)?p.P.toFixed(2):'-'),px>=p.P?_tag('ABOVE',G):_tag('BELOW',R));
+  }
+  return o+'</div></div>'+levelNotes(r);
+}
+function volStatsHTML(r){
+  var t=r.tech||{},G='#00d084',R='#ff4757',A='#ff9f43',M='#5a7a9a';
+  if(!_num(t.hv20))return '';
+  var o='<div class="mv"><div class="abox" style="margin-top:12px;padding:12px;font-size:11px;border-left-color:#3b82f6;line-height:1.5"><strong style="color:#3b82f6;display:block;margin-bottom:4px;font-size:10.5px">VOLATILITY &amp; RISK</strong>';
+  var hvc=t.hv20<t.hv60*0.8?G:t.hv20>t.hv60*1.2?R:'#e8f0fe';
+  o+=_trow('Hist. vol 20D / 60D / 1Y','<span style="color:'+hvc+'">'+t.hv20.toFixed(0)+'%</span> / '+t.hv60.toFixed(0)+'% / '+t.hv250.toFixed(0)+'%',t.hv20<t.hv60*0.8?_tag('CONTRACTING',G):t.hv20>t.hv60*1.2?_tag('EXPANDING',R):'');
+  if(_num(t.adr20))o+=_trow('Avg daily range (20D)',t.adr20.toFixed(1)+'%');
+  if(_num(t.beta))o+=_trow('Beta vs ASX 200',t.beta.toFixed(2),t.beta>1.3?_tag('HIGH',A):t.beta<0.8?_tag('LOW',G):'');
+  if(_num(t.corr))o+=_trow('Correlation to ASX 200',t.corr.toFixed(2));
+  if(_num(t.maxDD))o+=_trow('Max drawdown (1Y)','<span style="color:'+R+'">'+t.maxDD.toFixed(1)+'%</span>'+(_num(t.spyMaxDD)?' <span style="color:'+M+';font-weight:400">ASX 200 '+t.spyMaxDD.toFixed(1)+'%</span>':''));
+  if(_num(t.curDD))o+=_trow('Off 1Y peak','<span style="color:'+(t.curDD>-10?G:t.curDD>-25?A:R)+'">'+t.curDD.toFixed(1)+'%</span>');
+  o+='</div></div><div class="mv"><div class="abox" style="margin-top:12px;padding:12px;font-size:11px;border-left-color:#3b82f6;line-height:1.5"><strong style="color:#3b82f6;display:block;margin-bottom:4px;font-size:10.5px">LAST 60 SESSIONS</strong>';
+  if(_num(t.upDays60))o+=_trow('Up days',t.upDays60.toFixed(0)+'%',t.upDays60>=55?_tag('BUYERS',G):t.upDays60<=45?_tag('SELLERS',R):'');
+  if(_num(t.bestDay60))o+=_trow('Best / worst day','<span style="color:'+G+'">+'+t.bestDay60.toFixed(1)+'%</span> / <span style="color:'+R+'">'+t.worstDay60.toFixed(1)+'%</span>');
+  if(_num(t.gapUps))o+=_trow('Gaps over 2%','<span style="color:'+G+'">'+t.gapUps+' up</span> / <span style="color:'+R+'">'+t.gapDowns+' down</span>');
+  if(_num(t.streak)&&t.streak!==0)o+=_trow('Current streak',Math.abs(t.streak)+' '+(t.streak>0?'up':'down')+' day'+(Math.abs(t.streak)>1?'s':''),t.streak>0?_tag('UP',G):_tag('DOWN',R));
+  return o+'</div></div>';
+}
+function _card(title,val,tag,note){
+  return '<div class="mv xc" style="margin-top:10px"><div class="abox" style="padding:9px 10px;line-height:1.45">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center"><span style="font-weight:800;font-size:9px;color:var(--text);letter-spacing:.5px;text-transform:uppercase">'+title+'</span>'+(tag||'')+'</div>'+
+    '<div style="font-family:JetBrains Mono;font-weight:700;font-size:12px;color:#e8f0fe;margin-top:3px">'+val+'</div>'+
+    (note?'<div style="font-size:9px;color:var(--muted);margin-top:2px">'+note+'</div>':'')+'</div></div>';
+}
+function extraCards(r){
+  var e=(r.tech||{}).ex||{},G='#00d084',R='#ff4757',A='#ff9f43',M='#5a7a9a',c=[],px=r.price;
+  var sp=function(v,col){return '<span style="color:'+col+'">'+v+'</span>';};
+  if(_num(e.lrSlope))c.push(_card('Trend quality (50D)',(e.lrSlope>=0?'+':'')+e.lrSlope.toFixed(0)+'%/yr &middot; R&sup2; '+(_num(e.lrR2)?e.lrR2.toFixed(2):'-'),e.lrR2>=0.8?_tag(e.lrSlope>0?'SMOOTH UP':'SMOOTH DOWN',e.lrSlope>0?G:R):e.lrR2<0.4?_tag('CHOPPY',A):'','Log-price regression; R&sup2; near 1 = steady trend'));
+  if(_num(e.aroonUp))c.push(_card('Aroon (25)',sp('Up '+e.aroonUp.toFixed(0),G)+' / '+sp('Down '+e.aroonDn.toFixed(0),R),e.aroonUp>=70&&e.aroonDn<=30?_tag('UPTREND',G):e.aroonDn>=70&&e.aroonUp<=30?_tag('DOWNTREND',R):_tag('RANGE',M),'Days since 25-day high / low, as %'));
+  if(_num(e.viPlus))c.push(_card('Vortex (14)',sp('VI+ '+e.viPlus.toFixed(2),G)+' / '+sp('VI- '+e.viMinus.toFixed(2),R),e.viPlus>e.viMinus?_tag('BULL',G):_tag('BEAR',R),cardNote('vortex',e)));
+  if(_num(e.uo))c.push(_card('Ultimate Oscillator',e.uo.toFixed(0),e.uo>70?_tag('OVERBOUGHT',R):e.uo<30?_tag('OVERSOLD',G):e.uo>=50?_tag('BULLISH',G):_tag('WEAK',A),'7 / 14 / 28-day buying pressure'));
+  if(_num(e.cmo))c.push(_card('Chande Momentum (14)',(e.cmo>=0?'+':'')+e.cmo.toFixed(0),e.cmo>50?_tag('OVERBOUGHT',R):e.cmo<-50?_tag('OVERSOLD',G):'',cardNote('cmo',e)));
+  if(_num(e.trix))c.push(_card('TRIX (15)',(e.trix>=0?'+':'')+e.trix.toFixed(3)+'% <span style="color:'+M+';font-weight:400;font-size:10px">sig '+e.trixSig.toFixed(3)+'</span>',e.trix>e.trixSig?_tag('RISING',G):_tag('FALLING',R),'Triple-smoothed momentum'));
+  if(_num(e.ao))c.push(_card('Awesome Oscillator',(e.ao>=0?'+':'')+e.ao.toFixed(2)+'% of price',e.ao>=0?(e.aoUp?_tag('BULL RISING',G):_tag('BULL FADING',A)):(e.aoUp?_tag('BEAR EASING',A):_tag('BEAR FALLING',R)),'5 vs 34-day midpoint average'));
+  if(_num(e.bullPow))c.push(_card('Elder Ray (13)',sp('Bull '+(e.bullPow>=0?'+':'')+e.bullPow.toFixed(2),e.bullPow>=0?G:R)+' / '+sp('Bear '+(e.bearPow>=0?'+':'')+e.bearPow.toFixed(2),e.bearPow>=0?G:R),e.bullPow>0&&e.bearPow<0?_tag('BALANCED',M):e.bearPow>=0?_tag('STRONG',G):e.bullPow<=0?_tag('WEAK',R):'','High and low vs 13-day EMA. '+cardNote('elder',e)));
+  if(_num(e.cmf))c.push(_card('Chaikin Money Flow (20)',(e.cmf>=0?'+':'')+e.cmf.toFixed(3),e.cmf>0.1?_tag('ACCUMULATION',G):e.cmf<-0.1?_tag('DISTRIBUTION',R):_tag('NEUTRAL',M),''));
+  if(_num(e.chaikinOsc))c.push(_card('Chaikin Oscillator',(e.chaikinOsc>=0?'+':'')+e.chaikinOsc.toFixed(2)+'x avg vol',e.chaikinOsc>0?_tag('INFLOW',G):_tag('OUTFLOW',R),'3 vs 10-day A/D line'));
+  if(_num(e.force))c.push(_card('Force Index (13)',(e.force>=0?'+':'')+e.force.toFixed(2)+'%',e.force>0?_tag('BUYERS',G):_tag('SELLERS',R),'Price change x volume, vs avg $ volume'));
+  if(_num(e.vwap20)&&_num(px))c.push(_card('Rolling VWAP',CUR+e.vwap20.toFixed(2)+' <span style="color:'+M+';font-weight:400;font-size:10px">20D</span> &middot; '+CUR+(_num(e.vwap50)?e.vwap50.toFixed(2):'-')+' <span style="color:'+M+';font-weight:400;font-size:10px">50D</span>',px>e.vwap20&&px>e.vwap50?_tag('ABOVE BOTH',G):px<e.vwap20&&px<e.vwap50?_tag('BELOW BOTH',R):_tag('MIXED',A),'Volume-weighted average price paid'));
+  return c;
+}
+function fillGaps(panel,pool){
+  if(!pool)return;
+  var cards=Array.prototype.slice.call(pool.children),cols=Array.prototype.slice.call(panel.children).filter(function(c){return c!==pool&&c.offsetParent!==null;});
+  for(var guard=0;guard<30&&cards.length;guard++){
+    var rows={};cols.forEach(function(c){var k=Math.round(c.offsetTop);(rows[k]=rows[k]||[]).push(c);});
+    var placed=false;
+    Object.keys(rows).forEach(function(k){
+      var g=rows[k];if(g.length<2||placed||!cards.length)return;
+      var hs=g.map(function(c){return c.getBoundingClientRect().height;});
+      var mx=Math.max.apply(null,hs),si=hs.indexOf(Math.min.apply(null,hs)),gap=mx-hs[si];
+      if(gap<55)return;
+      var card=cards.shift();g[si].appendChild(card);placed=true;
+      if(g[si].getBoundingClientRect().height>mx+25)pool.appendChild(card);   // too tall for this gap: put it back, try the next card
+    });
+    if(!placed)break;
+  }
+}
+function ipoNote(r){
+  var t=r.tech||{},n=r.sessions||0;
+  var off=_num(r.pctFromHigh)?r.pctFromHigh.toFixed(1)+'% below its post-listing high':'';
+  return '<div class="abox" style="margin-bottom:10px;padding:10px;font-size:10.5px;line-height:1.5;border-left-color:#a78bfa;background:#a78bfa0f">'+
+    '<strong style="color:#a78bfa;display:block;font-size:10px;letter-spacing:.5px;margin-bottom:3px">RECENT IPO &middot; LISTED '+(r.listDate||'')+'</strong>'+
+    '<span style="color:var(--muted)">Only <strong style="color:#e8f0fe">'+n+' sessions</strong> of history. The MA150 / MA200 checks need 150-200 sessions, so they read as not met until then and the SEPA score understates it. '+
+    'Minervini judges new issues on their first base after listing instead: a tight, orderly consolidation that holds above the IPO-day low.'+(off?' It is '+off+'.':'')+'</span></div>';
+}
+var BENCH='the ASX 200';
+function fullSummary(r,passed,testable){
+  var t=r.tech||{},e=t.ex||{},m=t.mas||{},G='#00d084',R='#ff4757',A='#ff9f43',B='#3b82f6',M='#5a7a9a';
+  var f2=function(v){return CUR+v.toFixed(2);},pc=function(v){return (v>=0?'+':'')+v.toFixed(1)+'%';};
+  var px=r.price,sec=[],pos=0,neg=0;
+  var add=function(ok,w){if(ok===true)pos+=(w||1);else if(ok===false)neg+=(w||1);};
+
+  // ── Trend and stage
+  var stg=r.stage||0,stName={1:'Stage 1 (basing / neglect)',2:'Stage 2 (advancing)',3:'Stage 3 (topping)',4:'Stage 4 (declining)'}[stg]||'an unclassified stage';
+  var maN=0,maUp=0;['ema10','ema21','sma20','sma50','sma100','sma200'].forEach(function(k){if(m[k]&&_num(m[k].d)){maN++;if(m[k].d>=0)maUp++;}});
+  var ma50dn=m.sma50&&_num(m.sma50.slope)&&m.sma50.slope<0, ma200up=m.sma200&&_num(m.sma200.slope)&&m.sma200.slope>0;
+  var stacked=_num(r.ma50)&&_num(r.ma150)&&_num(r.ma200)&&r.ma50>r.ma150&&r.ma150>r.ma200;
+  add(stg===2?true:null,2);add(stg===4?false:null,2);add(r.sepaScore>=6,2);if(r.sepaScore<=3)neg+=1;
+  var tr='It sits in <b>'+stName+'</b> with a trend-template score of <b>'+r.sepaScore+'/7</b>'+(testable?' and '+passed+' of '+testable+' testable SEPA legs met':'')+'. ';
+  if(maN)tr+='Price is above <b>'+maUp+' of '+maN+'</b> moving averages'+(stacked?' and the 50 / 150 / 200-day are stacked in uptrend order':' but the long averages are not yet stacked in uptrend order')+'. ';
+  if(ma50dn)tr+='The 50-day is still sloping down, so the intermediate trend has not turned. ';
+  else if(m.sma50&&_num(m.sma50.slope))tr+='The 50-day is rising. ';
+  if(ma200up)tr+='The 200-day is rising, so the long-term trend is up. ';
+  if(_num(e.lrSlope))tr+='Over 50 sessions the price has trended '+(e.lrSlope>=0?'up':'down')+' at about '+Math.abs(e.lrSlope).toFixed(0)+'% a year'+(_num(e.lrR2)?(e.lrR2>=0.7?', smoothly':e.lrR2<0.4?', in a choppy way':'')+'':'')+'. ';
+  if(_num(t.adx))tr+=(t.adx>=25?'ADX '+t.adx.toFixed(0)+' shows a strong trend'+(t.plusDI>=t.minusDI?' with buyers in control.':' with sellers in control.'):'ADX '+t.adx.toFixed(0)+' says there is no strong trend right now.');
+  add(maN?maUp/maN>=0.8:null);add(ma50dn?false:null);add(_num(t.adx)&&t.adx>=25?t.plusDI>=t.minusDI:null);
+  sec.push(['Trend &amp; stage',tr]);
+
+  // ── Momentum
+  var mo='';
+  if(_num(t.rsi))mo+='RSI '+t.rsi.toFixed(0)+(t.rsi>=70?' is overbought':t.rsi<=30?' is oversold':t.rsi>=50?' favours buyers':' favours sellers')+'. ';
+  if(_num(t.macdHist))mo+='MACD is '+(t.macdHist>0?'positive':'negative')+' and '+((t.macdHist>=(t.macdHistPrev||0))===(t.macdHist>0)?'strengthening':'fading')+(t.macdCross?' (crossed '+t.macdCross+')':'')+'. ';
+  var ob=[];if(_num(t.stochK)&&t.stochK>=80)ob.push('Stochastic '+t.stochK.toFixed(0));if(_num(t.willR)&&t.willR>-20)ob.push('Williams %R '+t.willR.toFixed(0));if(_num(t.bbPctB)&&t.bbPctB>=90)ob.push('Bollinger %B '+t.bbPctB.toFixed(0)+'%');
+  if(ob.length)mo+='Short-term it is stretched ('+ob.join(', ')+'), so a pause or pullback would be normal before any further move. ';
+  if(_num(t.roc20))mo+='The last 20 sessions returned '+pc(t.roc20)+'.';
+  add(_num(t.rsi)?t.rsi>=50:null);add(_num(t.macdHist)?t.macdHist>0:null);
+  if(mo)sec.push(['Momentum',mo]);
+
+  // ── Volume
+  var vo='',vPos=0,vNeg=0;
+  if(_num(r.accDistRatio)){vo+='Over 60 sessions up-day volume is <b>'+r.accDistRatio.toFixed(2)+'x</b> down-day volume'+(r.accDistRatio>=1.2?' - institutions are accumulating':r.accDistRatio>=1?' - slightly more buying than selling':' - more stock has changed hands on down days, a sign of distribution')+'. ';r.accDistRatio>=1?vPos++:vNeg++;}
+  if(_num(t.obvTrend)){vo+='On-balance volume is '+(t.obvTrend>0?'rising':'falling')+' over 20 days. ';t.obvTrend>0?vPos++:vNeg++;}
+  if(_num(t.mfi)){vo+='Money Flow Index '+t.mfi.toFixed(0)+(t.mfi>=50?' shows net inflow':' shows net outflow')+'. ';t.mfi>=50?vPos++:vNeg++;}
+  if(_num(e.cmf)){vo+='Chaikin Money Flow is '+(e.cmf>=0?'+':'')+e.cmf.toFixed(2)+'. ';e.cmf>=0?vPos++:vNeg++;}
+  if(vPos+vNeg)vo+='<b>'+(vPos>vNeg+1?'Volume confirms the price action.':vNeg>vPos+1?'Volume does not confirm the price action - the move lacks institutional backing.':'Volume is mixed, so the move is not fully confirmed.')+'</b>';
+  add(vPos+vNeg?vPos>vNeg:null,2);
+  if(vo)sec.push(['Volume &amp; money flow',vo]);
+
+  // ── Relative strength
+  var rs='';
+  if(_num(t.rs12m))rs+='Against '+BENCH+' it is '+pc(t.rs12m)+' over 12 months'+(_num(t.rs6m)?', '+pc(t.rs6m)+' over 6':'')+(_num(t.rs3m)?' and '+pc(t.rs3m)+' over 3':'')+'. ';
+  if(t.rsLineHigh)rs+='The relative-strength line is at a 52-week high - a leadership trait Minervini looks for, often ahead of price. ';
+  else if(_num(t.rs3m)&&_num(t.rs12m)&&t.rs3m<0&&t.rs12m>0)rs+='A long-term leader that has lagged recently; leadership needs to reassert itself. ';
+  if(_num(t.beta))rs+='Beta '+t.beta.toFixed(2)+(t.beta>1.3?' - it amplifies market moves.':t.beta<0.8?' - it moves less than the market and mostly on its own news.':'.');
+  add(_num(t.rs12m)?t.rs12m>0:null);add(_num(t.rs3m)?t.rs3m>0:null);if(t.rsLineHigh)pos++;
+  if(rs)sec.push(['Relative strength',rs]);
+
+  // ── Key levels
+  var res=(t.res||[])[0],sup=(t.sup||[])[0],lv='',trigger=null,floor=null;
+  var ceilings=[];if(res)ceilings.push(res.v);if(_num(t.donHi)&&t.donHi>px)ceilings.push(t.donHi);if(_num(t.sar)&&!t.sarBull&&t.sar>px)ceilings.push(t.sar);
+  var near=ceilings.filter(function(v){return (v-px)/px<=0.04;}).sort(function(x,y){return x-y;}).filter(function(v,i,arr){return i===0||Math.abs(v-arr[i-1])/v>0.005;});
+  if(near.length)trigger=Math.max.apply(null,near);else if(ceilings.length)trigger=Math.min.apply(null,ceilings);
+  if(res)lv+='Nearest resistance '+f2(res.v)+' ('+pc((res.v-px)/px*100)+(res.n>1?', tested '+res.n+' times':'')+'). ';
+  else lv+='There is no swing resistance overhead in six months - clear air above. ';
+  if(sup){lv+='Nearest support '+f2(sup.v)+' ('+pc((sup.v-px)/px*100)+(sup.n>1?', tested '+sup.n+' times':'')+'). ';floor=sup.v;}
+  if(_num(t.donHi))lv+='The 20-day range is '+f2(t.donLo)+' to '+f2(t.donHi)+(t.donBreak==='up'?' and price just broke above it':'')+'. ';
+  if(t.fib){var fk=null;['0.236','0.382','0.5','0.618','0.786'].forEach(function(k){var v=t.fib.lv[k];if(_num(v)&&Math.abs(v-px)/px<0.015)fk=k;});if(fk)lv+='Price is sitting on the '+(parseFloat(fk)*100).toFixed(1)+'% Fibonacci level of the 60-day '+(t.fib.up?'rise':'fall')+'. ';}
+  if(near.length>=2)lv+='<b>Several ceilings cluster within 4% above ('+near.map(f2).join(', ')+'), making that zone the key hurdle.</b>';
+  sec.push(['Key levels',lv]);
+
+  // ── Risk
+  var rk='';
+  if(_num(t.atrPct))rk+='A typical day moves '+t.atrPct.toFixed(1)+'% ('+f2(t.atr)+'). ';
+  if(_num(t.hv20)&&_num(t.hv60))rk+='Volatility is '+(t.hv20<t.hv60*0.8?'contracting - a constructive sign in a base':t.hv20>t.hv60*1.2?'expanding - wider swings than usual':'steady')+' ('+t.hv20.toFixed(0)+'% vs '+t.hv60.toFixed(0)+'% annualised). ';
+  if(_num(r.ma50)&&r.ma50<px)rk+='A stop under the 50-day ('+f2(r.ma50)+') risks '+((px-r.ma50)/px*100).toFixed(1)+'%'+((px-r.ma50)/px*100>8?', wider than the 7-8% rule allows':'')+'. ';
+  else if(_num(r.ma50))rk+='Price is below the 50-day, so there is no natural stop under it. ';
+  if(_num(t.maxDD))rk+='Its worst fall in the past year was '+t.maxDD.toFixed(1)+'%.';
+  if(liqTxt)rk+=' '+liqTxt;
+  if(rk)sec.push(['Risk',rk]);
+
+  // ── Verdict
+  var score=pos/(pos+neg||1),st=r.status;
+  var vd,vc;
+  if(stg===2&&score>=0.65&&(st==='breakout'||st==='near-pivot')&&vPos>=vNeg){vd=st==='breakout'?'ACTIONABLE BREAKOUT':'SETUP NEAR PIVOT';vc=G;}
+  else if(stg===4||score<0.35){vd='AVOID - DOWNTREND';vc=R;}
+  else if(stg===2||score>=0.6){vd='CONSTRUCTIVE - ON WATCH';vc=B;}
+  else if(ma50dn&&_num(t.macdHist)&&t.macdHist>0){vd='BOUNCE, NOT YET A TREND';vc=A;}
+  else {vd='MIXED - NO EDGE';vc=A;}
+
+  var L=lockInfo(r),liqTxt='';
+  if(L.days>=2){
+    sec.unshift([HAS_LIMITS?'Circuit lock':'Barely trading','<b style=\"color:'+R+'\">For the last '+L.days+' sessions the stock has traded at a single price all day</b> (high = low = close), moving about '+(L.step||0).toFixed(1)+'% '+(L.up?'up':'down')+' each day'+(HAS_LIMITS?' - the exchange&#39;s daily price limit. '+(L.up?'Buyers are queued at the limit with almost no sellers, so you generally cannot buy at the shown price.':'Sellers are queued at the limit with almost no buyers, so you generally cannot sell.'):'. This market has no daily price limits, so a one-price day means almost nothing traded - there is effectively no market in the stock right now.')+' Every indicator here is computed from those one-price bars and overstates the trend. Locked runs like this are typical of thinly traded or speculative stocks and can reverse just as abruptly.']);
+  }
+  if(_num(L.adv))liqTxt='Average traded value over 20 sessions is about '+LIQ_FMT(L.adv)+' a day'+(L.illiquid?' - <b>very thin</b>: a modest order can move the price, and exiting may be hard.':'.');
+  // ── What to watch
+  var wt='';
+  if(vd==='ACTIONABLE BREAKOUT')wt='Follow-through above '+(trigger?f2(trigger):'the pivot')+' on above-average volume keeps it valid. A close back inside the base, or below the 50-day, says the breakout failed.';
+  else if(trigger)wt='Bullish trigger: a close above <b>'+f2(trigger)+'</b> on volume at least 1.5x average'+(vNeg>vPos?' - which would also fix the weak volume picture':'')+'. '+(floor?'If it turns down instead, the first area for buyers is around <b>'+f2(floor)+'</b>'+(_num(r.ma50)&&r.ma50<px&&r.ma50>floor?' (the 50-day at '+f2(r.ma50)+' comes first)':'')+'.':'');
+  else wt='No nearby trigger level - wait for a base to form.';
+  var trendOK=stacked&&ma200up&&_num(r.ma200)&&px>r.ma200;
+  if(stg!==2&&trendOK&&_num(r.accDistRatio)&&r.accDistRatio<1)wt+=' The price structure already meets Stage 2 (above a rising 200-day, averages stacked), but the stage model also needs up-day volume to beat down-day volume over 60 sessions - here it is '+r.accDistRatio.toFixed(2)+'x - so it stays out of Stage 2 until buyers show up in volume.';
+  else if(stg!==2&&trendOK)wt+=' The price structure meets Stage 2, but the stage model is not yet convinced the advance is established - recheck after the next base.';
+  else if(stg!==2)wt+=' For a SEPA entry it still needs to reach Stage 2: price above a rising 150- and 200-day with the 50-day above both, and up-day volume beating down-day volume.';
+  if(r.ipo)wt+=' As a recent listing, judge it on its first orderly base rather than the 200-day rules.';
+  if(L.days>=2){vd=HAS_LIMITS?'CIRCUIT-LOCKED':'NOT TRADING';vc=R;wt='Nothing is actionable while it is locked. Wait for the lock to break and normal two-way trading to resume, then let a proper base form - the indicators will only mean something once the bars have a real range again.';}
+  else if(L.illiquid){vd=vd+' &middot; THIN';wt+=' Size any position to the stock&#39;s low liquidity.';}
+
+  var h='<div style=\"font-size:10px;color:var(--muted);line-height:1.55;padding:10px 12px;background:var(--bg3);border-radius:6px;border:1px solid var(--border);border-left:3px solid '+vc+'\">'+
+    '<div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:6px\"><strong style=\"color:#fff;font-size:10.5px;letter-spacing:.5px\">FULL READ</strong>'+
+    '<span style=\"font-size:9px;font-weight:800;color:'+vc+';border:1px solid '+vc+'66;background:'+vc+'14;border-radius:3px;padding:1px 6px\">'+vd+'</span></div>'+
+    '<div style=\"display:flex;height:5px;border-radius:3px;overflow:hidden;background:#1e2d45;margin-bottom:3px\"><div style=\"width:'+(score*100).toFixed(0)+'%;background:'+G+'\"></div><div style=\"flex:1;background:'+R+'\"></div></div>'+
+    '<div style=\"font-size:9px;margin-bottom:8px\"><span style=\"color:'+G+'\">'+pos+' bullish</span> / <span style=\"color:'+R+'\">'+neg+' bearish</span> weighted signals across SEPA, trend, momentum, volume and relative strength</div>';
+  sec.forEach(function(s){h+='<p style=\"margin:0 0 7px\"><strong style=\"color:var(--text)\">'+s[0]+'. </strong>'+s[1]+'</p>';});
+  h+='<p style=\"margin:0 0 7px;padding-top:6px;border-top:1px solid var(--border)\"><strong style=\"color:'+vc+'\">What to watch. </strong>'+wt+'</p>';
+  h+='<p style=\"margin:0;font-size:9px;color:#3d5a78\">The SEPA method buys strength already in motion and depends on cutting failures quickly; it assumes a trending broad market. Catalysts and the market backdrop are yours to judge. Not financial advice.</p></div>';
+  return h;
+}
+var HAS_LIMITS=false;
+var LIQ_MIN=2e5;
+function LIQ_FMT(v){return v>=1e6?CUR+(v/1e6).toFixed(1)+'M':CUR+Math.round(v/1e3)+'K';}
+function lockInfo(r){
+  var o=r.ohlcv||[],n=o.length,days=0,dir=0,steps=[];
+  for(var i=n-1;i>=1;i--){var x=o[i];if(!(x&&x[1]===x[2]&&x[2]===x[3]))break;days++;var p=o[i-1][3];if(p){var c=(x[3]-p)/p*100;steps.push(c);dir+=c>0?1:c<0?-1:0;}}
+  var tv=0,k=0;for(var j=Math.max(0,n-20);j<n;j++){if(o[j]&&_num(o[j][3])&&_num(o[j][4])){tv+=o[j][3]*o[j][4];k++;}}
+  var avgStep=steps.length?steps.reduce(function(a,b){return a+Math.abs(b);},0)/steps.length:null;
+  return {days:days,up:dir>0,step:avgStep,adv:k?tv/k:null,illiquid:k?tv/k<LIQ_MIN:false};
+}
+function _fmtVal(v){return LIQ_FMT(v);}
+function levelNotes(r){
+  var t=r.tech||{},px=r.price,f0=function(v){return CUR+(v>=100?Math.round(v).toLocaleString():v.toFixed(2));};
+  if(!_num(px))return '';
+  var pc=function(a,b){return Math.abs((a-b)/b*100);};
+  var res=(t.res||[])[0],sup=(t.sup||[])[0],f=t.fib,L=lockInfo(r),o=[],todo=[];
+  var H=function(x){return '<p style="margin:8px 0 3px;font-weight:800;color:var(--text);font-size:10px">'+x+'</p>';};
+  var P=function(x){return '<p style="margin:0 0 4px">'+x+'</p>';};
+  var big=false,nearTop=false;
+
+  // 1. The setup
+  if(f&&_num(f.hi)&&_num(f.lo)&&f.lo>0){
+    var mv=(f.hi-f.lo)/f.lo*100;big=f.up&&mv>=60;
+    if(f.up){nearTop=pc(f.hi,px)<3;
+      o.push(H('The setup')+P('Over the last 60 sessions it rose from about <b>'+f0(f.lo)+' to '+f0(f.hi)+'</b> (+'+mv.toFixed(0)+'%). It is now at <b>'+f0(px)+'</b>, '+(nearTop?'right at the top of that run.':pc(f.hi,px).toFixed(0)+'% below that high.')));
+    } else {
+      o.push(H('The setup')+P('Over the last 60 sessions it fell from about <b>'+f0(f.hi)+' to '+f0(f.lo)+'</b> (-'+((f.hi-f.lo)/f.hi*100).toFixed(0)+'%). It is now at <b>'+f0(px)+'</b>, '+((px-f.lo)/f.lo*100).toFixed(0)+'% above that low.'));
+    }
+  }
+
+  // 2. Ceiling
+  if(!res)o.push(H('Ceiling (resistance): none')+P('It is above every price of the last 6 months, so nobody is sitting on a loss waiting to sell. That is good, but there is also no obvious target. The usual answer is a <b>trailing stop</b>: a stop you keep raising as the price climbs.'));
+  else o.push(H('Ceiling (resistance): '+f0(res.v)+', '+pc(res.v,px).toFixed(1)+'% above')+P('The stock turned down here'+(res.n>1?' '+res.n+' times':'')+' before. People who bought there and lost money often sell when it comes back, so expect a pause. A strong close above it on high volume would open the way higher.'));
+
+  // 3. Floor
+  if(sup){var dd=pc(px,sup.v)>0?(px-sup.v)/px*100:0;
+    o.push(H('Floor (support): '+f0(sup.v)+', '+dd.toFixed(0)+'% below')+P('Buyers stepped in here'+(sup.n>1?' '+sup.n+' times':'')+' before. '+(dd>20?'<b>That is a long way down.</b> The stock rose without pausing, so if it falls there is no obvious level for buyers to defend until about '+f0(sup.v)+'.':dd<5?'It is close, so a stop just under it keeps the possible loss small.':'A drop below it would break the pattern of the last few months.')));
+  } else o.push(H('Floor (support): none found')+P('No clear level where buyers have stepped in during the last 6 months.'));
+
+  // 4. Pullback / bounce map
+  if(f&&f.lv){var lv=f.lv,a=lv['0.382'],b=lv['0.5'],c=lv['0.618'];
+    if(f.up){
+      var where=px>=lv['0.236']?'Right now it has <b>not pulled back at all</b>.':px>=a?'It has made a small, healthy pullback so far.':px>=c?'It is <b>in the normal pullback zone now</b> - watch whether buyers hold it here.':'It has already fallen <b>deeper than a normal pullback</b> - most of the rise is gone.';
+      o.push(H('Where a normal pullback would stop')+P('After a big run, stocks usually give back part of it before the next move. For this run:')+
+        '<p style="margin:0 0 2px">&bull; A <b>healthy pullback</b> would come back to about <b>'+f0(a)+' - '+f0(b)+'</b>'+(_num(px)?' ('+Math.min(pc(a,px),pc(b,px)).toFixed(0)+'-'+Math.max(pc(a,px),pc(b,px)).toFixed(0)+'% below today)':'')+'.</p>'+
+        '<p style="margin:0 0 4px">&bull; Falling below about <b>'+f0(c)+'</b> would mean most of the rise has been undone.</p>'+P(where));
+      if(nearTop&&sup&&(px-sup.v)/px>0.2)todo.push('Buying here means <b>no nearby safety net</b>: a normal pullback alone could take it '+Math.min(pc(a,px),pc(b,px)).toFixed(0)+'-'+Math.max(pc(a,px),pc(b,px)).toFixed(0)+'% lower.');
+      if(px>=a)todo.push('A patient approach: wait for a pullback that <b>holds around '+f0(b)+' - '+f0(a)+'</b> and turns back up, or for a tight sideways range to form, which creates a nearer floor.');
+      else if(px>=c)todo.push('It is in the zone where buyers usually return. Look for it to stop falling and turn up on rising volume before acting.');
+      else todo.push('The uptrend is in trouble. Wait for a new base to form rather than trying to catch the fall.');
+      todo.push('If you already own it, raise your stop as it climbs to protect the gain.');
+    } else {
+      o.push(H('How far could a bounce go?')+P('Bounces in a falling stock often stall around <b>'+f0(a)+' - '+f0(c)+'</b>. Getting back above about <b>'+f0(c)+'</b> would suggest a real turnaround, not just a bounce.')+
+        P(px>=c?'It is <b>already above that level</b>, which is encouraging.':px>=a?'It is <b>in that stall zone now</b>.':'It has not bounced far yet.'));
+      todo.push(px>=c?'The bounce is strong enough to take seriously. Watch whether it can hold above '+f0(c)+'.':'Until it gets back above '+f0(c)+', treat any rise as a bounce in a downtrend.');
+    }
+  }
+
+  // 5. Next day
+  if(t.pivots){var p=t.pivots;
+    o.push(H('Tomorrow (pivot points)')+P(Math.abs(p.R1-p.S1)<1e-6?'All the pivot levels are the same ('+f0(p.P)+') because it traded at a single price all day. They mean nothing until it trades normally again.':'The key level for the next session is <b>'+f0(p.P)+'</b>. Staying above it is a small positive. First ceiling '+f0(p.R1)+', first floor '+f0(p.S1)+'. These matter mostly to day traders.'));
+  }
+
+  // 6. Practical
+  if(L.days>=2)todo.unshift('<b style="color:#ff4757">'+(HAS_LIMITS?'It is circuit-locked':'It is barely trading')+'</b> (one price all day for '+L.days+' sessions). You generally cannot trade at the shown price, so none of the levels above can be used until it trades normally.');
+  else if(L.illiquid)todo.unshift('<b style="color:#ff9f43">It trades very thinly</b> (about '+LIQ_FMT(L.adv)+' a day), so a small order can move the price and getting out can be hard.');
+  if(big&&L.days<2&&!L.illiquid)todo.push('It more than '+(((f.hi-f.lo)/f.lo)>=1?'doubled':'jumped')+' in about 3 months. Runs that fast often swing hard both ways, so keep position size small.');
+  if(todo.length)o.push(H('What this means in practice')+todo.map(function(x){return '<p style="margin:0 0 3px">&bull; '+x+'</p>';}).join(''));
+
+  return '<div class="mv"><div class="abox" style="margin-top:12px;padding:10px;line-height:1.5;font-size:10px;color:var(--muted)"><div style="font-weight:800;font-size:9.5px;color:var(--text);letter-spacing:.5px">WHAT THE LEVELS MEAN</div>'+
+    o.join('')+'<p style="margin:6px 0 0;font-size:9px;color:#3d5a78">An explanation of the levels, not a recommendation to buy or sell.</p></div></div>';
+}
+function cardNote(name,e){
+  // stock-specific one-liners for the filler cards
+  if(name==='vortex')return Math.abs(e.viPlus-e.viMinus)<0.02?'VI+ equals VI-: no directional edge.':(e.viPlus>e.viMinus?'Upward movement outweighs downward over 14 days.':'Downward movement outweighs upward over 14 days.');
+  if(name==='cmo')return Math.abs(e.cmo)>=99?'Every day in the last 14 closed '+(e.cmo>0?'higher':'lower')+' - extreme, usually unsustainable.':(e.cmo>50?'Up days heavily outweigh down days.':e.cmo<-50?'Down days heavily outweigh up days.':'Up and down days roughly balanced.');
+  if(name==='elder')return Math.abs(e.bullPow-e.bearPow)<1e-6?'Bull and Bear Power are equal: the day had no range.':(e.bearPow>0?'Even the day&#39;s low was above the 13-day average - strong.':e.bullPow<0?'Even the day&#39;s high was below the 13-day average - weak.':'High above, low below the average - two-way trade.');
+  return '';
+}
+function fillFund(r){
+  var out='<div class="mv">';
+  // Key stats
+  var fwd=(_num(r.trailingEps)&&_num(r.forwardEps)&&r.trailingEps>0)?(r.forwardEps-r.trailingEps)/r.trailingEps*100:null;
+  out+='<div class="dh" style="margin-top:14px">Key Stats</div><table class="mat">'+
+    _kv('Mkt Cap',r.mktcapFmt||'n/a')+
+    _kv('Net Margin',_num(r.netMargin)?_pc(r.netMargin):'<span style="color:#3d5a78">n/a</span>')+
+    _kv('EPS (TTM)',_num(r.trailingEps)?CUR+r.trailingEps.toFixed(2):'n/a')+
+    _kv('EPS (Fwd)',_num(r.forwardEps)?CUR+r.forwardEps.toFixed(2):'n/a')+
+    _kv('Fwd EPS chg',_pc(fwd))+
+    '</table>';
+  if(r.sector)out+='<div style="font-size:10px;color:#4a6a8a;margin-top:4px">'+r.sector+'</div>';
+  out+='</div><div class="mv">';
+  // 52-week range
+  if(_num(r.lo52)&&_num(r.hi52)&&r.hi52>r.lo52&&_num(r.price)){
+    var pos=Math.max(0,Math.min(100,(r.price-r.lo52)/(r.hi52-r.lo52)*100));
+    out+='<div class="dh" style="margin-top:14px">52-Week Range</div>'+
+      '<div style="position:relative;height:6px;border-radius:3px;background:linear-gradient(90deg,#ff4757,#ff9f43,#00d084);opacity:.85"></div>'+
+      '<div style="position:relative;height:10px"><div style="position:absolute;left:calc('+pos+'% - 5px);top:1px;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:7px solid #e8f0fe"></div></div>'+
+      '<div style="display:flex;justify-content:space-between;font-size:9.5px;font-family:JetBrains Mono;color:var(--muted)"><span>'+CUR+r.lo52.toFixed(2)+'</span><span style="color:#e8f0fe">'+CUR+r.price.toFixed(2)+'</span><span>'+CUR+r.hi52.toFixed(2)+'</span></div>'+
+      '<table class="mat" style="margin-top:4px">'+
+      _kv('Below high',_num(r.pctFromHigh)?'<span style="color:'+(r.pctFromHigh<=15?'#00d084':r.pctFromHigh<=25?'#ff9f43':'#ff4757')+'">'+r.pctFromHigh.toFixed(1)+'%</span>':'n/a')+
+      _kv('Above low',_num(r.pctAboveLow)?'<span style="color:'+(r.pctAboveLow>=25?'#00d084':'#ff9f43')+'">'+r.pctAboveLow.toFixed(1)+'%</span>':'n/a')+
+      '</table>';
+  }
+  out+='</div><div class="mv">';
+  // Price vs moving averages
+  if(_num(r.price)){
+    var d=function(m){return _num(m)&&m>0?(r.price-m)/m*100:null;};
+    out+='<div class="dh" style="margin-top:14px">Price vs Moving Avgs</div>'+
+      _barRow('vs MA50',d(r.ma50),25)+_barRow('vs MA150',d(r.ma150),40)+_barRow('vs MA200',d(r.ma200),50);
+  }
+  out+='</div><div class="mv">';
+  // Performance
+  out+='<div class="dh" style="margin-top:14px">Performance</div>'+
+    _barRow('Today',r.change,5)+_barRow('5 days',r.chg5d,15)+_barRow('60 days',r.chg60d,40)+_barRow('12 months',r.chg250d,100);
+  // Accumulation
+  if(_num(r.accDistRatio)){
+    var a=r.accDistRatio,ac=a>=1.2?'#00d084':a>=1?'#8bc34a':'#ff4757';
+    out+='<table class="mat" style="margin-top:2px">'+_kv('Up/Down vol (60D)','<span style="color:'+ac+'">'+a.toFixed(2)+'x</span>')+'</table>';
+  }
+  out+='</div>'+techHTML(r);
+  return out;
+}
+
 function revBars(quarters){
   if(!quarters||!Array.isArray(quarters)||!quarters.length)return'<div style="color:#253550;font-size:10px">No quarterly data</div>';
-  var vals=quarters.slice(0,5);
+  var vals=quarters.slice(-5);
   var maxV=1;
   for(var k=0;k<vals.length;k++){if(Math.abs(vals[k][1])>maxV)maxV=Math.abs(vals[k][1]);}
   var out='';
@@ -564,7 +1046,8 @@ function render(){
       q=document.getElementById('srch').value.toLowerCase(),
       sec=document.getElementById('sec').value;
   var d=D.filter(function(r){
-    if(filt!=='all'&&r.status!==filt)return false;
+    if(filt==='ipo'){if(!r.ipo)return false;}
+    else if(filt!=='all'&&r.status!==filt)return false;
     if(stageFilt&&r.stage!==stageFilt)return false;
     if(sec&&r.sector!==sec)return false;
     if(q&&!r.ticker.toLowerCase().includes(q)&&!r.name.toLowerCase().includes(q))return false;
@@ -618,7 +1101,7 @@ function row(r,i){
   }
   return '<tr class="main-row" onclick="tog('+i+')" id="mr'+i+'">'+
     '<td style="color:#253550;font-size:10px">'+(i+1)+'</td>'+
-    '<td><div class="tkr">'+r.ticker+'</div><div class="co" title="'+r.name+'">'+r.name+'</div></td>'+
+    '<td><div class="tkr">'+r.ticker+(function(){var L=lockInfo(r);return L.days>=2?'<span style="font-size:8px;font-weight:800;color:#ff4757;border:1px solid #ff475766;background:#ff475714;border-radius:3px;padding:0 3px;margin-left:5px;vertical-align:middle" title="Traded at one price for '+L.days+' sessions'+(HAS_LIMITS?' (circuit limit)':' (almost no trades)')+'">'+(HAS_LIMITS?'LOCKED':'NO TRADES')+'</span>':L.illiquid?'<span style="font-size:8px;font-weight:800;color:#ff9f43;border:1px solid #ff9f4366;background:#ff9f4314;border-radius:3px;padding:0 3px;margin-left:5px;vertical-align:middle" title="Average traded value under '+LIQ_FMT(LIQ_MIN)+' a day">THIN</span>':'';})()+(r.ipo?'<span style="font-size:8px;font-weight:800;color:#a78bfa;border:1px solid #a78bfa66;background:#a78bfa14;border-radius:3px;padding:0 3px;margin-left:5px;vertical-align:middle" title="Listed '+r.listDate+' - '+r.sessions+' sessions">IPO</span>':'')+'</div><div class="co" title="'+r.name+'">'+r.name+'</div></td>'+
     '<td>'+stageBdg+'</td>'+
     '<td>'+bdg+'</td>'+
     '<td><div style="display:flex;align-items:center;gap:3px"><div class="pips">'+ps+'</div><span style="font-size:10px;color:var(--muted)">'+sc+'</span></div></td>'+
@@ -661,6 +1144,7 @@ function det(r){
     '<tr><td class="mlb">Rev YoY</td><td class="mgv">'+fmtGrowth(rg)+'</td></tr>'+
     '<tr><td class="mlb">EPS Grw</td><td class="mgv">'+fmtGrowth(eg,10,0)+'</td></tr>'+
     '</table>'+
+    fillFund(r)+
     '</div>';
     
   var evHtml='<div class="ev-none">No upcoming events</div>';
@@ -848,13 +1332,14 @@ function det(r){
   candleSigsHTML += \'</div>\';
 
   var _oc = r.ohlcv || [];
-  var _cl = _oc.map(function(x){return x[3];});
-  var _hi = _oc.map(function(x){return x[1];});
+  var _cl = _oc.map(function(x){return x[3];}).filter(function(v){return typeof v==='number'&&isFinite(v);});
+  var _hi = _oc.map(function(x){return x[1];}).filter(function(v){return typeof v==='number'&&isFinite(v);});
   var _vo = _oc.map(function(x){return x[4];});
   var _mean = function(a){ if(!a.length) return 0; var t=0; for(var q=0;q<a.length;q++)t+=a[q]; return t/a.length; };
   var _back = function(n){ if(_cl.length>n){ var o=_cl[_cl.length-1-n]; return o>0 ? (r.price-o)/o*100 : null; } return null; };
   var _c10=_back(10), _c20=_back(20);
   var _pivot = _hi.length>=20 ? Math.max.apply(null,_hi.slice(-20)) : null;
+  if(_pivot!==null && !(_pivot>0)) _pivot=null;
   var _toPivot = _pivot ? (_pivot-r.price)/r.price*100 : null;
   var _v5 = _vo.length>=5 ? _mean(_vo.slice(-5)) : null;
   var _vAll = _vo.length ? _mean(_vo) : null;
@@ -1097,10 +1582,7 @@ function det(r){
       : passed+' of the '+testable+' testable legs hold. Minervini treats these as cumulative rather than a majority vote - a strong chart does not compensate for a weak business, and neither compensates for a wide stop.';
     return '<div style=\"margin-top:14px\"><div class=\"dh\">SEPA Scorecard &#8212; '+passed+'/'+testable+' testable legs</div>'+
       rows+
-      '<div style=\"font-size:9.5px;color:var(--muted);line-height:1.5;padding:7px 10px;background:var(--bg3);border-radius:5px;border:1px solid var(--border)\">'+
-      '<strong style=\"color:var(--text)\">Read together: </strong>'+verdict+
-      ' The method is momentum, not value: it buys strength already in motion and depends on cutting the failures quickly. It also assumes a trending broad market - in a choppy one, breakouts fail in a run and the rules stop working.'+
-      '</div></div>';
+      fullSummary(r,passed,testable)+'</div>';
   })();
 
   var chartCol=\'<div style=\"display:flex;flex-direction:column;gap:12px\">\'+
@@ -1134,25 +1616,51 @@ function det(r){
     \'<div class=\"abox\" style=\"margin-top:6px;padding:10px;line-height:1.6\">\'+
     \'<div style=\"font-weight:800;font-size:9px;color:var(--text);margin-bottom:6px;letter-spacing:0.5px\">SUMMARY</div>\'+(r.analysis || \"Awaiting breakout confirmation.\")+
     \'<div class=\"aact \'+ac+\'\" style=\"margin-top:8px\">\'+at+\'</div></div>\'+
-    pbHTML+
+    pbHTML+tech2HTML(r)+
     \'</div>\';
 
-  return \'<div class=\"dpanel\">\'+chartCol+sepaCol+fundCol+vcpCol+tradeCol+nuanceHTML+\'</div>\';
+  chartCol=chartCol.slice(0,-6)+indChartsHTML(r)+\'</div>\';
+  if(r.ipo)sepaCol=sepaCol.slice(0,5)+ipoNote(r)+sepaCol.slice(5);
+  sepaCol=sepaCol.slice(0,-6)+srHTML(r)+\'</div>\';
+  nuanceHTML=nuanceHTML.slice(0,-6)+volStatsHTML(r)+\'</div>\';
+  return \'<div class=\"dpanel\">\'+chartCol+sepaCol+fundCol+vcpCol+tradeCol+nuanceHTML+\'<div class=\"xpool\" style=\"display:none\">\'+extraCards(r).join(\'\')+\'</div></div>\';
 }
 
 
+function _topMv(col){return Array.prototype.filter.call(col.querySelectorAll('.mv'),function(m){var p=m.parentElement;while(p&&p!==col){if(p.classList.contains('mv'))return false;p=p.parentElement;}return true;});}
+function balancePanel(panel){
+  if(!panel)return;
+  panel.style.alignItems='start';
+  var cols=Array.prototype.slice.call(panel.children).filter(function(c){return !c.classList.contains('xpool');});
+  for(var it=0;it<40;it++){
+    var rows={};cols.forEach(function(c){var k=Math.round(c.offsetTop);(rows[k]=rows[k]||[]).push(c);});
+    var moved=false;
+    Object.keys(rows).forEach(function(k){
+      var g=rows[k];if(g.length<2||moved)return;
+      var hs=g.map(function(c){return c.getBoundingClientRect().height;});
+      var ti=hs.indexOf(Math.max.apply(null,hs)),si=hs.indexOf(Math.min.apply(null,hs)),diff=hs[ti]-hs[si];
+      if(diff<40)return;
+      var best=null,bestMax=hs[ti]-20;
+      _topMv(g[ti]).forEach(function(b){var h=b.getBoundingClientRect().height+12;if(h<20)return;var m=Math.max(hs[ti]-h,hs[si]+h);if(m<bestMax){bestMax=m;best=b;}});
+      if(best){var tgt=g[si];(tgt.lastElementChild&&tgt.children.length===1&&tgt.lastElementChild.tagName==='DIV'&&tgt.lastElementChild.style.height==='100%'?tgt.lastElementChild:tgt).appendChild(best);moved=true;}
+    });
+    if(!moved)break;
+  }
+}
 function tog(i){
   var el=document.getElementById('d'+i);
   var mr=document.getElementById('mr'+i);
   var showing=el.style.display!=='none';
   el.style.display=showing?'none':'table-row';
   if(mr)mr.classList.toggle('expanded',!showing);
+  if(!showing&&!el.dataset.bal){el.dataset.bal='1';requestAnimationFrame(function(){var dp=el.querySelector('.dpanel');balancePanel(dp);fillGaps(dp,dp.querySelector('.xpool'));});}
 }
 render();
 </script>
 </body>
 </html>"""
     html = tmpl.replace("{stamp_str}", stamp_str).replace("{today_str}", today_str)
+    html = html.replace("{cap_str}", cap_str)
     html = html.replace("{json_data}", json_data)
     html = html.replace("{sector_opts}", sector_opts)
     html = html.replace("{top_html}", top_html)
@@ -1160,6 +1668,7 @@ render();
     html = html.replace("{len(breakouts)}", str(len(breakouts)))
     html = html.replace("{len(pivots)}", str(len(pivots)))
     html = html.replace("{len(watching)}", str(len(watching)))
+    html = html.replace("{len(ipos)}", str(len(ipos)))
     html = html.replace("{len(stage1)}", str(len(stage1)))
     html = html.replace("{len(stage2)}", str(len(stage2)))
     html = html.replace("{len(stage3)}", str(len(stage3)))
