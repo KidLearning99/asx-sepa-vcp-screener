@@ -1,5 +1,202 @@
 {
   "about": "Analyst ratings found by web research for stocks that Yahoo Finance does not cover. Maintained by a weekly scheduled task; read by build_dashboard.py. n = number of analysts found (0 = searched, none found). rating: strong_buy | buy | hold | underperform | sell | null. checked = date researched; asOf = date of the newest analyst view found.",
   "updated": "2026-11-19",
-  "stocks": {}
+  "stocks": {
+    "ACL": {
+      "checked": "2026-11-19",
+      "n": 7,
+      "rating": "hold",
+      "tMean": 2.95,
+      "tLow": 2.4,
+      "tHigh": 3.65,
+      "asOf": "2026-10",
+      "brokers": "Macquarie, Ord Minnett, Canaccord Genuity, RBC Capital",
+      "note": "The shares have rallied above most broker targets; MarketScreener's consensus is Hold with an average target near A$2.95, and Macquarie was Neutral at A$2.90 in late October 2026. TradingView shows a more bullish average of about A$3.50, but MarketScreener's current figures were used.",
+      "sources": [
+        {
+          "name": "MarketScreener",
+          "url": "https://uk.marketscreener.com/quote/stock/AUSTRALIAN-CLINICAL-LABS--122418975/consensus/"
+        },
+        {
+          "name": "FNArena",
+          "url": "https://www.fnarena.com/index.php/analysis-data/consensus-forecasts/stock-analysis/?code=ACL"
+        },
+        {
+          "name": "TradingView",
+          "url": "https://www.tradingview.com/symbols/ASX-ACL/forecast"
+        }
+      ]
+    },
+    "OML": {
+      "checked": "2026-11-19",
+      "n": 6,
+      "rating": "hold",
+      "tMean": 1.64,
+      "tLow": 1.5,
+      "tHigh": 1.7,
+      "asOf": "2026-08",
+      "brokers": "Morgan Stanley, Macquarie, Canaccord Genuity",
+      "note": "Several brokers moved to Hold after the August 2026 result, and the average target is roughly in line with the current price.",
+      "sources": [
+        {
+          "name": "StockAnalysis (S&P Global)",
+          "url": "https://stockanalysis.com/quote/asx/OML/forecast/"
+        }
+      ]
+    },
+    "APA": {
+      "checked": "2026-11-19",
+      "n": 11,
+      "rating": "hold",
+      "tMean": 9.77,
+      "tLow": 8.5,
+      "tHigh": 11.1,
+      "asOf": "2026-10",
+      "brokers": "UBS, Citi, Morgan Stanley, Morgans, Ord Minnett",
+      "note": "Views are split: Citi rates it Buy, while UBS, Morgans and Ord Minnett have Sell calls. The share price sits above even the highest target.",
+      "sources": [
+        {
+          "name": "StockAnalysis (S&P Global)",
+          "url": "https://stockanalysis.com/quote/asx/APA/forecast/"
+        }
+      ]
+    },
+    "CWY": {
+      "checked": "2026-11-19",
+      "n": 12,
+      "rating": "buy",
+      "tMean": 3.03,
+      "tLow": 2.7,
+      "tHigh": 3.25,
+      "asOf": "2026-08",
+      "brokers": "Morgans, Jefferies, UBS, Jarden, Morgan Stanley",
+      "note": "Most brokers rate it Buy, with Morgan Stanley the main Hold, but the average target leaves little upside from the current price.",
+      "sources": [
+        {
+          "name": "StockAnalysis (S&P Global)",
+          "url": "https://stockanalysis.com/quote/asx/CWY/forecast/"
+        }
+      ]
+    },
+    "EVT": {
+      "checked": "2026-11-19",
+      "n": 6,
+      "rating": "buy",
+      "tMean": 16.0,
+      "tLow": 13.7,
+      "tHigh": 17.55,
+      "asOf": "2026-08",
+      "brokers": "Morgan Stanley, Jarden, Citi, Ord Minnett",
+      "note": "The brokers listed with recent actions all rate it Buy. The average target is a little above the current price.",
+      "sources": [
+        {
+          "name": "StockAnalysis (S&P Global)",
+          "url": "https://stockanalysis.com/quote/asx/EVT/forecast/"
+        }
+      ]
+    },
+    "EWC": {
+      "checked": "2026-11-19",
+      "n": 0,
+      "rating": null,
+      "tMean": null,
+      "tLow": null,
+      "tHigh": null,
+      "asOf": null,
+      "note": "No sell-side analyst coverage or price targets were found for this stock.",
+      "sources": [
+        {
+          "name": "Simply Wall St",
+          "url": "https://simplywall.st/stocks/au/utilities/asx-ewc/energy-world-shares/future"
+        },
+        {
+          "name": "Alpha Spread",
+          "url": "https://www.alphaspread.com/security/asx/ewc/analyst-estimates"
+        }
+      ]
+    },
+    "FPH": {
+      "checked": "2026-11-19",
+      "n": 12,
+      "rating": "buy",
+      "tMean": 37.95,
+      "tLow": 23.9,
+      "tHigh": 46.91,
+      "asOf": "2026-11",
+      "brokers": "UBS, Jefferies, Morgan Stanley, Canaccord Genuity, Citi, Macquarie, Jarden",
+      "note": "Brokers lean positive overall, but the AUD average target sits below the ASX price. Many targets are set in NZD (MarketScreener NZX consensus NZ$46.77, Outperform), and TradingView's AUD figures match that consensus once converted.",
+      "sources": [
+        {
+          "name": "TradingView",
+          "url": "https://in.tradingview.com/symbols/ASX-FPH/forecast"
+        },
+        {
+          "name": "MarketScreener (NZX)",
+          "url": "https://ca.marketscreener.com/quote/stock/FISHER-PAYKEL-HEALTHCARE--50912934/consensus/"
+        },
+        {
+          "name": "FNArena",
+          "url": "https://fnarena.com/index.php/analysis-data/consensus-forecasts/stock-analysis/?code=FPH"
+        }
+      ]
+    },
+    "HCW": {
+      "checked": "2026-11-19",
+      "n": 6,
+      "rating": "buy",
+      "tMean": 0.93,
+      "tLow": 0.75,
+      "tHigh": 1.1,
+      "asOf": "2026-09",
+      "brokers": "Morgan Stanley, Bell Potter, Macquarie, Morgans",
+      "note": "Most brokers are positive on the REIT. Morgan Stanley is the exception, with an Underweight rating and a target of about the current price (Sep 2026). FNArena's consensus target is A$0.90.",
+      "sources": [
+        {
+          "name": "TradingView",
+          "url": "https://in.tradingview.com/symbols/ASX-HCW/forecast"
+        },
+        {
+          "name": "FNArena",
+          "url": "https://fnarena.com/stock-price-analysis/reits/HCW"
+        }
+      ]
+    },
+    "PGF": {
+      "checked": "2026-11-19",
+      "n": 0,
+      "rating": null,
+      "tMean": null,
+      "tLow": null,
+      "tHigh": null,
+      "asOf": null,
+      "note": "This listed investment company has no broker ratings or price targets. The only entries on TipRanks come from AI models and were ignored.",
+      "sources": [
+        {
+          "name": "TipRanks",
+          "url": "https://www.tipranks.com/stocks/au:pgf/forecast"
+        },
+        {
+          "name": "MarketBeat",
+          "url": "https://www.marketbeat.com/stocks/ASX/PGF/chart/news/"
+        }
+      ]
+    },
+    "MVF": {
+      "checked": "2026-11-19",
+      "n": 6,
+      "rating": "buy",
+      "tMean": 0.81,
+      "tLow": 0.7,
+      "tHigh": 0.91,
+      "asOf": "2026-09",
+      "brokers": "RBC Capital, Jefferies, Ord Minnett, Bell Potter, Morgans",
+      "note": "The consensus leans Buy, but after the 2026 profit-guidance cut, targets were lowered to around A$0.70-0.85. RBC and Bell Potter rate it Hold.",
+      "sources": [
+        {
+          "name": "StockAnalysis (S&P Global)",
+          "url": "https://stockanalysis.com/quote/asx/MVF/forecast/"
+        }
+      ]
+    }
+  }
 }
