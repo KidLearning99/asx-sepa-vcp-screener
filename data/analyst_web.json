@@ -1,6 +1,6 @@
 {
   "about": "Analyst ratings found by web research for stocks that Yahoo Finance does not cover. Maintained by a weekly scheduled task; read by build_dashboard.py. n = number of analysts found (0 = searched, none found). rating: strong_buy | buy | hold | underperform | sell | null. checked = date researched; asOf = date of the newest analyst view found.",
-  "updated": "2026-11-19",
+  "updated": "2026-11-27",
   "stocks": {
     "ACL": {
       "checked": "2026-11-19",
@@ -195,6 +195,219 @@
         {
           "name": "StockAnalysis (S&P Global)",
           "url": "https://stockanalysis.com/quote/asx/MVF/forecast/"
+        }
+      ]
+    },
+    "CCP": {
+      "checked": "2026-11-27",
+      "n": 7,
+      "rating": "strong_buy",
+      "tMean": 17.09,
+      "tLow": 12.3,
+      "tHigh": 20.18,
+      "asOf": "2026-08",
+      "brokers": "Macquarie, Jefferies, Canaccord Genuity, J.P. Morgan, Morgans",
+      "note": "The S&P Global consensus has 7 analysts: 5 Strong Buy, 1 Buy and 1 Hold. The latest target changes came after the August 2026 result. TradingView labels the consensus Buy, with a 17.72 average from 4 targets.",
+      "sources": [
+        {
+          "name": "StockAnalysis",
+          "url": "https://stockanalysis.com/quote/asx/CCP/forecast/"
+        },
+        {
+          "name": "TradingView",
+          "url": "https://www.tradingview.com/symbols/ASX-CCP/forecast"
+        }
+      ]
+    },
+    "MEI": {
+      "checked": "2026-11-27",
+      "n": 4,
+      "rating": "buy",
+      "tMean": 0.28,
+      "tLow": 0.23,
+      "tHigh": 0.4,
+      "asOf": "2026-10",
+      "brokers": "Macquarie, Canaccord Genuity, Ord Minnett, Bell Potter",
+      "note": "Targets vary by site: TradingView averages 0.28, FNArena 0.34. Macquarie (0.43) and Canaccord (0.45) are the most bullish.",
+      "sources": [
+        {
+          "name": "TradingView",
+          "url": "https://www.tradingview.com/symbols/ASX-MEI/forecast"
+        },
+        {
+          "name": "FNArena",
+          "url": "https://www.fnarena.com/index.php/analysis-data/consensus-forecasts/stock-analysis/?code=MEI"
+        },
+        {
+          "name": "StockAnalysis",
+          "url": "https://stockanalysis.com/quote/asx/MEI/forecast/"
+        },
+        {
+          "name": "Motley Fool AU",
+          "url": "https://www.fool.com.au/2026/07/28/macquarie-says-this-asx-rare-earths-company-could-jump-140/"
+        }
+      ]
+    },
+    "PWH": {
+      "checked": "2026-11-27",
+      "n": 9,
+      "rating": "buy",
+      "tMean": 12.11,
+      "tLow": 9.8,
+      "tHigh": 13.2,
+      "asOf": "2026-08",
+      "brokers": "UBS, MA Financial, Bell Potter, Morgan Stanley, Morgans",
+      "note": "A marginal Buy: MarketScreener and TradingView lean positive, but StockAnalysis shows Hold and several brokers cut to Hold in August 2026.",
+      "sources": [
+        {
+          "name": "MarketScreener",
+          "url": "https://ca.marketscreener.com/quote/stock/PWR-HOLDINGS-LIMITED-24827087/consensus/"
+        },
+        {
+          "name": "TradingView",
+          "url": "https://www.tradingview.com/symbols/ASX-PWH/forecast"
+        },
+        {
+          "name": "StockAnalysis",
+          "url": "https://stockanalysis.com/quote/asx/PWH/forecast/"
+        }
+      ]
+    },
+    "RG1": {
+      "checked": "2026-11-27",
+      "n": 0,
+      "rating": null,
+      "tMean": null,
+      "tLow": null,
+      "tHigh": null,
+      "asOf": null,
+      "note": "RG1 is a listed investment company holding a long/short portfolio of global listed securities, managed by Regal. Market Index says no major broker covers it, and TipRanks lists only AI-model ratings, which do not count.",
+      "sources": [
+        {
+          "name": "Market Index",
+          "url": "https://www.marketindex.com.au/asx/rg1"
+        },
+        {
+          "name": "TipRanks",
+          "url": "https://www.tipranks.com/stocks/au:rg1/stock-analysis"
+        },
+        {
+          "name": "StockAnalysis",
+          "url": "https://stockanalysis.com/quote/asx/RG1/"
+        }
+      ]
+    },
+    "AUC": {
+      "checked": "2026-11-27",
+      "n": 2,
+      "rating": "buy",
+      "tMean": 2.075,
+      "tLow": 1.5,
+      "tHigh": 2.65,
+      "asOf": "2026-08",
+      "brokers": "Canaccord Genuity, Bell Potter",
+      "note": "Only two brokers: Canaccord Buy and Bell Potter Hold at 1.50. Sites quote Canaccord's target differently (3.00 vs 3.45), so the range is rough.",
+      "sources": [
+        {
+          "name": "StockAnalysis",
+          "url": "https://stockanalysis.com/quote/asx/AUC/forecast/"
+        },
+        {
+          "name": "Investing.com",
+          "url": "https://uk.investing.com/equities/ausgold-ltd-consensus-estimates"
+        }
+      ]
+    },
+    "LSF": {
+      "checked": "2026-11-27",
+      "n": 0,
+      "rating": null,
+      "tMean": null,
+      "tLow": null,
+      "tHigh": null,
+      "asOf": null,
+      "note": "Listed long/short fund run by L1 Capital, with no broker targets found. Market Index showed the stock as halted or suspended.",
+      "sources": [
+        {
+          "name": "TipRanks",
+          "url": "https://www.tipranks.com/stocks/au:lsf/forecast"
+        },
+        {
+          "name": "Stockopedia",
+          "url": "https://www.stockopedia.com/share-prices/l1-long-short-fund-ASX:LSF"
+        },
+        {
+          "name": "Market Index",
+          "url": "https://www.marketindex.com.au/asx/lsf/financials"
+        },
+        {
+          "name": "StockAnalysis",
+          "url": "https://stockanalysis.com/quote/asx/LSF/"
+        }
+      ]
+    },
+    "SNL": {
+      "checked": "2026-11-27",
+      "n": 6,
+      "rating": "buy",
+      "tMean": 37.88,
+      "tLow": 31.0,
+      "tHigh": 41.0,
+      "asOf": "2026-08",
+      "brokers": "Ord Minnett, MA Financial",
+      "note": "Six analysts give a Buy consensus. Ord Minnett and MA Financial both kept Buy with 41.00 targets in late August 2026. TradingView's 4-target average is higher at 39.60.",
+      "sources": [
+        {
+          "name": "StockAnalysis",
+          "url": "https://stockanalysis.com/quote/asx/SNL/forecast/"
+        },
+        {
+          "name": "TradingView",
+          "url": "https://www.tradingview.com/symbols/ASX-SNL/forecast"
+        }
+      ]
+    },
+    "WQG": {
+      "checked": "2026-11-27",
+      "n": 0,
+      "rating": null,
+      "tMean": null,
+      "tLow": null,
+      "tHigh": null,
+      "asOf": null,
+      "note": "WQG is a listed investment company investing in global equities. Market Index says no major broker covers it, and TipRanks shows only AI-model ratings.",
+      "sources": [
+        {
+          "name": "Market Index",
+          "url": "https://www.marketindex.com.au/asx/wqg"
+        },
+        {
+          "name": "TipRanks",
+          "url": "https://www.tipranks.com/stocks/au:wqg/forecast"
+        },
+        {
+          "name": "Stockopedia",
+          "url": "https://www.stockopedia.com/share-prices/wcm-global-growth-ASX:WQG"
+        }
+      ]
+    },
+    "XRF": {
+      "checked": "2026-11-27",
+      "n": 2,
+      "rating": "strong_buy",
+      "tMean": 2.31,
+      "tLow": 2.25,
+      "tHigh": 2.37,
+      "asOf": "2026-11",
+      "note": "Just two analysts cover XRF, and both are rated Strong Buy in the November 2026 period. TradingView's figures are almost the same, with a 2.30 average and a 2.26 to 2.34 range.",
+      "sources": [
+        {
+          "name": "StockAnalysis",
+          "url": "https://stockanalysis.com/quote/asx/XRF/forecast/"
+        },
+        {
+          "name": "TradingView",
+          "url": "https://in.tradingview.com/symbols/ASX-XRF/forecast"
         }
       ]
     }
